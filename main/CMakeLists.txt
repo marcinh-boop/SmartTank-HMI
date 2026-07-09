@@ -7,9 +7,11 @@ idf_component_register(
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
         "ui/theme.c"
+        "widgets/tank_widget.c"
     INCLUDE_DIRS
         "."
         "app"
         "screens"
         "ui"
+        "widgets"
 )
