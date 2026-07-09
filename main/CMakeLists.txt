@@ -3,6 +3,12 @@ idf_component_register(
         "main.c"
         "lvgl_port.c"
         "waveshare_rgb_lcd_port.c"
+        "app/app.c"
+        "screens/screen_boot.c"
+        "ui/theme.c"
     INCLUDE_DIRS
         "."
+        "app"
+        "screens"
+        "ui"
 )
