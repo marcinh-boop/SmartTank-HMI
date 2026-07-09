@@ -14,5 +14,6 @@
   "idf.currentSetup": "C:\\Users\\marci\\esp\\v5.5.1\\esp-idf",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
-  }
+  },
+  "idf.flashType": "UART"
 }
