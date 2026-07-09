@@ -5,6 +5,7 @@ idf_component_register(
         "waveshare_rgb_lcd_port.c"
         "app/app.c"
         "screens/screen_boot.c"
+        "screens/screen_dashboard.c"
         "ui/theme.c"
     INCLUDE_DIRS
         "."
