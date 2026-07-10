@@ -147,7 +147,7 @@ static void create_large_weather_icon(lv_obj_t *card)
 
     lv_obj_t *root = lv_obj_create(card);
     lv_obj_set_size(root, 82, 82);
-    lv_obj_align(root, LV_ALIGN_TOP_LEFT, -2, 42);
+    lv_obj_align(root, LV_ALIGN_TOP_LEFT, -2, 58);
     make_noninteractive(root);
     lv_obj_remove_style_all(root);
 
@@ -232,59 +232,6 @@ static void decorate_dashboard_cards(lv_obj_t *screen)
     }
 }
 
-static lv_obj_t *find_bottom_bar(lv_obj_t *screen)
-{
-    const uint32_t child_count = lv_obj_get_child_cnt(screen);
-
-    for (uint32_t i = 0U; i < child_count; i++) {
-        lv_obj_t *candidate = lv_obj_get_child(screen, i);
-        if (candidate != NULL &&
-            lv_obj_get_width(candidate) == 760 &&
-            lv_obj_get_height(candidate) == 50 &&
-            lv_obj_get_y(candidate) > 300) {
-            return candidate;
-        }
-    }
-
-    return NULL;
-}
-
-static void decorate_navigation(lv_obj_t *screen)
-{
-    static const char *labels[] = {
-        LV_SYMBOL_HOME " Pulpit",
-        LV_SYMBOL_LIST " Historia",
-        LV_SYMBOL_BELL " Alarmy",
-        LV_SYMBOL_SETTINGS " Ustawienia",
-        LV_SYMBOL_EYE_OPEN " Serwis",
-        LV_SYMBOL_FILE " Informacje",
-    };
-
-    lv_obj_t *bottom_bar = find_bottom_bar(screen);
-    if (bottom_bar == NULL) {
-        return;
-    }
-
-    const uint32_t button_count = lv_obj_get_child_cnt(bottom_bar);
-    const uint32_t label_count = sizeof(labels) / sizeof(labels[0]);
-
-    for (uint32_t i = 0U; i < button_count && i < label_count; i++) {
-        lv_obj_t *button = lv_obj_get_child(bottom_bar, i);
-        if (button == NULL || lv_obj_get_child_cnt(button) == 0U) {
-            continue;
-        }
-
-        lv_obj_t *label = lv_obj_get_child(button, 0);
-        if (label == NULL || !lv_obj_check_type(label, &lv_label_class)) {
-            continue;
-        }
-
-        lv_label_set_text(label, labels[i]);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
-        lv_obj_center(label);
-    }
-}
-
 void panel_icons_apply(lv_obj_t *screen)
 {
     if (screen == NULL || s_applied) {
@@ -293,6 +240,5 @@ void panel_icons_apply(lv_obj_t *screen)
 
     lv_obj_update_layout(screen);
     decorate_dashboard_cards(screen);
-    decorate_navigation(screen);
     s_applied = true;
 }
