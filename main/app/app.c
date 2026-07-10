@@ -9,6 +9,7 @@
 #include "clock_service.h"
 #include "data_simulator.h"
 #include "settings_storage.h"
+#include "wifi_service.h"
 #include "lvgl_port.h"
 #include "screen_dashboard.h"
 
@@ -37,6 +38,16 @@ void app_start(void)
 
     ESP_ERROR_CHECK(measurement_history_init());
     ESP_ERROR_CHECK(clock_service_start());
+
+    const esp_err_t wifi_result = wifi_service_start();
+    if (wifi_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Wi-Fi service unavailable: %s",
+            esp_err_to_name(wifi_result)
+        );
+    }
+
     ESP_ERROR_CHECK(data_simulator_start());
 
     if (lvgl_port_lock(-1)) {
