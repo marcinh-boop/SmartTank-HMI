@@ -7,6 +7,7 @@
 #include "esp_log.h"
 
 #include "app_model.h"
+#include "measurement_history.h"
 
 static const char *TAG = "data_sim";
 static TaskHandle_t s_simulator_task;
@@ -75,6 +76,13 @@ static void publish_simulated_state(uint32_t tick)
     app_model_update_well(&well);
     app_model_update_weather(&weather);
     app_model_update_system(&system);
+
+    measurement_history_add(
+        tank.level_percent,
+        well.water_column_m,
+        well.well_depth_m,
+        tick
+    );
 }
 
 static void simulator_task(void *arg)
