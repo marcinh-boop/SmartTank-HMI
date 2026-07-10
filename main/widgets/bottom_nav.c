@@ -1,7 +1,6 @@
 #include "bottom_nav.h"
 #include "theme.h"
 
-#include <stdint.h>
 #include <string.h>
 
 #define NAV_BG             lv_color_hex(0x08131F)
@@ -18,9 +17,6 @@ static const char *NAV_NAMES[NAV_ITEM_COUNT] = {
     "Serwis",
     "Informacje"
 };
-
-static bottom_nav_t s_nav;
-static bottom_nav_change_cb_t s_change_cb = NULL;
 
 static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
 {
@@ -63,29 +59,41 @@ void bottom_nav_set_active(bottom_nav_t *nav, bottom_nav_page_t active_page)
 
 static void nav_button_event_cb(lv_event_t *event)
 {
-    bottom_nav_page_t page = (bottom_nav_page_t)(intptr_t)lv_event_get_user_data(event);
+    bottom_nav_button_ctx_t *ctx = lv_event_get_user_data(event);
 
-    if (page == s_nav.active_page) {
+    if (ctx == NULL || ctx->nav == NULL) {
         return;
     }
 
-    if (s_change_cb != NULL && !s_change_cb(page)) {
+    bottom_nav_t *nav = ctx->nav;
+    const bottom_nav_page_t page = ctx->page;
+
+    if (page == nav->active_page) {
         return;
     }
 
-    bottom_nav_set_active(&s_nav, page);
+    if (nav->change_cb != NULL && !nav->change_cb(page)) {
+        return;
+    }
+
+    bottom_nav_set_active(nav, page);
 }
 
-bottom_nav_t bottom_nav_create(
+bottom_nav_t *bottom_nav_create(
     lv_obj_t *parent,
     bottom_nav_page_t active_page,
     bottom_nav_change_cb_t change_cb)
 {
-    memset(&s_nav, 0, sizeof(s_nav));
+    bottom_nav_t *nav = lv_mem_alloc(sizeof(bottom_nav_t));
+    if (nav == NULL) {
+        return NULL;
+    }
 
-    s_nav.root = parent;
-    s_nav.active_page = active_page;
-    s_change_cb = change_cb;
+    memset(nav, 0, sizeof(*nav));
+
+    nav->root = parent;
+    nav->active_page = active_page;
+    nav->change_cb = change_cb;
 
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLL_ELASTIC);
@@ -106,28 +114,31 @@ bottom_nav_t bottom_nav_create(
     lv_obj_set_style_pad_column(parent, 3, LV_PART_MAIN);
 
     for (int i = 0; i < NAV_ITEM_COUNT; i++) {
-        s_nav.buttons[i] = lv_btn_create(parent);
-        lv_obj_remove_style_all(s_nav.buttons[i]);
+        nav->buttons[i] = lv_btn_create(parent);
+        lv_obj_remove_style_all(nav->buttons[i]);
 
-        lv_obj_set_size(s_nav.buttons[i], 118, 38);
-        lv_obj_set_style_radius(s_nav.buttons[i], 7, LV_PART_MAIN);
-        lv_obj_set_style_shadow_width(s_nav.buttons[i], 0, LV_PART_MAIN);
-        lv_obj_set_style_outline_width(s_nav.buttons[i], 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(s_nav.buttons[i], 0, LV_PART_MAIN);
+        lv_obj_set_size(nav->buttons[i], 118, 38);
+        lv_obj_set_style_radius(nav->buttons[i], 7, LV_PART_MAIN);
+        lv_obj_set_style_shadow_width(nav->buttons[i], 0, LV_PART_MAIN);
+        lv_obj_set_style_outline_width(nav->buttons[i], 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(nav->buttons[i], 0, LV_PART_MAIN);
 
-        s_nav.labels[i] = lv_label_create(s_nav.buttons[i]);
-        lv_label_set_text(s_nav.labels[i], NAV_NAMES[i]);
-        lv_obj_set_style_text_font(s_nav.labels[i], &lv_font_montserrat_14, LV_PART_MAIN);
-        lv_obj_center(s_nav.labels[i]);
+        nav->labels[i] = lv_label_create(nav->buttons[i]);
+        lv_label_set_text(nav->labels[i], NAV_NAMES[i]);
+        lv_obj_set_style_text_font(nav->labels[i], &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_center(nav->labels[i]);
+
+        nav->contexts[i].nav = nav;
+        nav->contexts[i].page = (bottom_nav_page_t)i;
 
         lv_obj_add_event_cb(
-            s_nav.buttons[i],
+            nav->buttons[i],
             nav_button_event_cb,
             LV_EVENT_RELEASED,
-            (void *)(intptr_t)i
+            &nav->contexts[i]
         );
     }
 
-    bottom_nav_set_active(&s_nav, active_page);
-    return s_nav;
+    bottom_nav_set_active(nav, active_page);
+    return nav;
 }
