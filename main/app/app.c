@@ -6,6 +6,7 @@
 
 #include "app_model.h"
 #include "measurement_history.h"
+#include "clock_service.h"
 #include "data_simulator.h"
 #include "settings_storage.h"
 #include "lvgl_port.h"
@@ -35,6 +36,7 @@ void app_start(void)
     }
 
     ESP_ERROR_CHECK(measurement_history_init());
+    ESP_ERROR_CHECK(clock_service_start());
     ESP_ERROR_CHECK(data_simulator_start());
 
     if (lvgl_port_lock(-1)) {
