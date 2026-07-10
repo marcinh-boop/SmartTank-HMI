@@ -25,6 +25,16 @@ typedef struct {
 } tank_measurement_t;
 
 typedef struct {
+    char sensor_model[32];
+    char input_mode[16];
+    uint8_t analog_channel;
+    float distance_empty_mm;
+    float distance_full_mm;
+    int warning_percent;
+    int critical_percent;
+} tank_channel_config_t;
+
+typedef struct {
     float water_column_m;
     float well_depth_m;
     bool valid;
@@ -51,6 +61,7 @@ typedef struct {
 
 typedef struct {
     tank_measurement_t tank;
+    tank_channel_config_t tank_config;
     well_measurement_t well;
     weather_measurement_t weather;
     system_status_t system;
@@ -60,6 +71,7 @@ typedef struct {
 esp_err_t app_model_init(void);
 void app_model_get_snapshot(smarttank_state_t *snapshot);
 void app_model_update_tank(const tank_measurement_t *measurement);
+void app_model_update_tank_config(const tank_channel_config_t *config);
 void app_model_update_well(const well_measurement_t *measurement);
 void app_model_update_weather(const weather_measurement_t *measurement);
 void app_model_update_system(const system_status_t *status);
