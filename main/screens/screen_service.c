@@ -5,6 +5,7 @@
 #include "app_model.h"
 #include "clock_service.h"
 #include "modbus_rtu_client.h"
+#include "ntp_service.h"
 #include "rs485_port.h"
 #include "theme.h"
 #include "wifi_service.h"
@@ -34,6 +35,8 @@ static lv_obj_t *s_module_value;
 static lv_obj_t *s_rtc_status_value;
 static lv_obj_t *s_rtc_time_value;
 static lv_obj_t *s_wifi_value;
+static lv_obj_t *s_ntp_value;
+static lv_obj_t *s_time_source_value;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -105,6 +108,16 @@ static void refresh_rtc_status(void)
 {
     clock_service_snapshot_t clock;
     clock_service_get_snapshot(&clock);
+
+    lv_label_set_text(
+        s_time_source_value,
+        clock_service_source_name(clock.source)
+    );
+    lv_obj_set_style_text_color(
+        s_time_source_value,
+        clock.source == CLOCK_TIME_SOURCE_NONE ? SERVICE_YELLOW : SERVICE_GREEN,
+        LV_PART_MAIN
+    );
 
     if (!clock.started) {
         lv_label_set_text(s_rtc_status_value, "START");
@@ -178,6 +191,52 @@ static void refresh_wifi_status(void)
 
     lv_label_set_text(s_wifi_value, "RADIO OK");
     lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
+}
+
+static void refresh_ntp_status(void)
+{
+    ntp_service_snapshot_t ntp;
+    ntp_service_get_snapshot(&ntp);
+
+    if (!ntp.started) {
+        lv_label_set_text(s_ntp_value, "OFF");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
+        return;
+    }
+
+    if (ntp.last_error != ESP_OK) {
+        lv_label_set_text(s_ntp_value, "BLAD");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_RED, LV_PART_MAIN);
+        return;
+    }
+
+    if (ntp.synchronized) {
+        lv_label_set_text(
+            s_ntp_value,
+            ntp.rtc_updated ? "OK" : "OK / RTC ERR"
+        );
+        lv_obj_set_style_text_color(
+            s_ntp_value,
+            ntp.rtc_updated ? SERVICE_GREEN : SERVICE_YELLOW,
+            LV_PART_MAIN
+        );
+        return;
+    }
+
+    if (ntp.waiting_for_wifi) {
+        lv_label_set_text(s_ntp_value, "CZEKA WIFI");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
+        return;
+    }
+
+    if (ntp.synchronizing || ntp.initialized) {
+        lv_label_set_text(s_ntp_value, "SYNCHRONIZACJA");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_BLUE, LV_PART_MAIN);
+        return;
+    }
+
+    lv_label_set_text(s_ntp_value, "START");
+    lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
 }
 
 static void refresh_service(void)
@@ -254,6 +313,7 @@ static void refresh_service(void)
 
     refresh_rtc_status();
     refresh_wifi_status();
+    refresh_ntp_status();
 }
 
 static void refresh_timer_cb(lv_timer_t *timer)
@@ -304,7 +364,7 @@ static void build_screen(lv_obj_t *parent_screen)
     );
     create_label(
         top,
-        "RS485 / RTC / WIFI",
+        "RS485 / RTC / NTP",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_RIGHT_MID,
         -12,
@@ -367,8 +427,8 @@ static void build_screen(lv_obj_t *parent_screen)
     s_rtc_status_value = create_value_row(status_panel, "RTC PCF85063", "--", 130);
     s_rtc_time_value = create_value_row(status_panel, "Czas RTC", "--", 162);
     s_wifi_value = create_value_row(status_panel, "Wi-Fi", "--", 194);
-    create_value_row(status_panel, "Adres slave", "DO USTALENIA", 226);
-    create_value_row(status_panel, "Mapa rejestrow", "BRAK", 258);
+    s_ntp_value = create_value_row(status_panel, "NTP", "--", 226);
+    s_time_source_value = create_value_row(status_panel, "Zrodlo czasu", "--", 258);
 
     s_refresh_timer = lv_timer_create(refresh_timer_cb, 500, NULL);
     refresh_service();
