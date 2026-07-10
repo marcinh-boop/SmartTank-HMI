@@ -55,13 +55,12 @@ extern "C" {
 #define LVGL_PORT_BUFFER_HEIGHT         (CONFIG_EXAMPLE_LVGL_PORT_BUF_HEIGHT)
 
 /**
- * SmartTank HMI uses three complete RGB frame buffers and LVGL full-refresh
- * mode. Page changes replace nearly the whole 800x340 content area. Rendering
- * a complete frame off-screen and swapping a finished buffer is more stable
- * here than direct-mode dirty-area copying.
+ * Two complete RGB frame buffers with LVGL direct mode are the most stable
+ * option for this 800x480 panel. Triple-buffer full-refresh caused visible
+ * frame bouncing even on simple touch invalidation.
  */
 #define LVGL_PORT_AVOID_TEAR_ENABLE       (1)
-#define LVGL_PORT_AVOID_TEAR_MODE         (2)
+#define LVGL_PORT_AVOID_TEAR_MODE         (3)
 #define EXAMPLE_LVGL_PORT_ROTATION_DEGREE (0)
 
 #if LVGL_PORT_AVOID_TEAR_ENABLE
