@@ -20,6 +20,7 @@ idf_component_register(
         "screens/screen_dashboard.c"
         "screens/screen_tank_detail.c"
         "screens/screen_tank_calibration.c"
+        "screens/screen_service.c"
         "screens/screen_history.c"
         "screens/screen_display_test.c"
 
