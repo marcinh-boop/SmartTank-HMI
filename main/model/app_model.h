@@ -30,6 +30,7 @@ typedef struct {
     uint8_t analog_channel;
     float distance_empty_mm;
     float distance_full_mm;
+    float capacity_m3;
     int warning_percent;
     int critical_percent;
 } tank_channel_config_t;
