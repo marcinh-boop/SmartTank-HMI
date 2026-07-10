@@ -19,6 +19,19 @@ static void model_unlock(void)
     xSemaphoreGive(s_model_mutex);
 }
 
+static bool tank_config_is_valid(const tank_channel_config_t *config)
+{
+    return config != NULL &&
+           config->analog_channel >= 1U &&
+           config->analog_channel <= 8U &&
+           config->distance_empty_mm > config->distance_full_mm &&
+           config->distance_full_mm >= 0.0f &&
+           config->capacity_m3 > 0.0f &&
+           config->warning_percent >= 1 &&
+           config->warning_percent < config->critical_percent &&
+           config->critical_percent <= 100;
+}
+
 esp_err_t app_model_init(void)
 {
     if (s_model_mutex != NULL) {
@@ -53,6 +66,7 @@ esp_err_t app_model_init(void)
     s_state.tank_config.analog_channel = 1U;
     s_state.tank_config.distance_empty_mm = 1500.0f;
     s_state.tank_config.distance_full_mm = 250.0f;
+    s_state.tank_config.capacity_m3 = 10.50f;
     s_state.tank_config.warning_percent = 80;
     s_state.tank_config.critical_percent = 90;
 
@@ -104,13 +118,18 @@ void app_model_update_tank(const tank_measurement_t *measurement)
 
 void app_model_update_tank_config(const tank_channel_config_t *config)
 {
-    if (config == NULL || !model_lock()) {
+    if (!tank_config_is_valid(config) || !model_lock()) {
         return;
     }
 
     s_state.tank_config = *config;
     s_state.tank_config.sensor_model[sizeof(s_state.tank_config.sensor_model) - 1U] = '\0';
     s_state.tank_config.input_mode[sizeof(s_state.tank_config.input_mode) - 1U] = '\0';
+
+    s_state.tank.capacity_m3 = config->capacity_m3;
+    s_state.tank.volume_m3 =
+        config->capacity_m3 * (float)s_state.tank.level_percent / 100.0f;
+
     s_state.revision++;
     model_unlock();
 }
