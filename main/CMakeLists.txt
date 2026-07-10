@@ -6,6 +6,9 @@ idf_component_register(
 
         "app/app.c"
 
+        "model/app_model.c"
+        "services/data_simulator.c"
+
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
         "screens/screen_history.c"
@@ -22,6 +25,8 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "app"
+        "model"
+        "services"
         "screens"
         "ui"
         "widgets"
