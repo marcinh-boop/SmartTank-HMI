@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-#define ESP_PANEL_USE_1024_600_LCD           (0)     // 0: 800x480, 1: 1024x600
-#define CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911 1 // 1 initiates the touch, 0 closes the touch.
+#define ESP_PANEL_USE_1024_600_LCD           (0)
+#define CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911 1
 
 #if ESP_PANEL_USE_1024_600_LCD
 #define LVGL_PORT_H_RES             (1024)
@@ -35,24 +35,22 @@ extern "C" {
 #define LVGL_PORT_TASK_PRIORITY     (CONFIG_EXAMPLE_LVGL_PORT_TASK_PRIORITY)
 #define LVGL_PORT_TASK_CORE         (CONFIG_EXAMPLE_LVGL_PORT_TASK_CORE)
 
-#if CONFIG_EXAMPLE_LVGL_PORT_BUF_PSRAM
-#define LVGL_PORT_BUFFER_MALLOC_CAPS    (MALLOC_CAP_SPIRAM)
-#elif CONFIG_EXAMPLE_LVGL_PORT_BUF_INTERNAL
-#define LVGL_PORT_BUFFER_MALLOC_CAPS    (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-#endif
-#define LVGL_PORT_BUFFER_HEIGHT         (CONFIG_EXAMPLE_LVGL_PORT_BUF_HEIGHT)
-
 /*
- * Match the stable Waveshare example: two complete RGB frame buffers are used
- * directly by LVGL and every update is rendered as a complete frame.
+ * Bandwidth-safe RGB mode:
+ * - one panel frame buffer in PSRAM,
+ * - two small bounce buffers in internal RAM,
+ * - one 40-line LVGL draw buffer in internal RAM,
+ * - partial refresh only.
+ *
+ * This avoids writing a complete 800x480 frame to PSRAM on every touch.
  */
-#define LVGL_PORT_AVOID_TEAR_ENABLE       (1)
-#define LVGL_PORT_AVOID_TEAR_MODE         (1)
+#define LVGL_PORT_BUFFER_HEIGHT          (40)
+#define LVGL_PORT_LCD_RGB_BUFFER_NUMS    (1)
+#define LVGL_PORT_FULL_REFRESH           (0)
+#define LVGL_PORT_DIRECT_MODE            (0)
+#define LVGL_PORT_AVOID_TEAR_ENABLE      (0)
+#define LVGL_PORT_AVOID_TEAR_MODE        (0)
 #define EXAMPLE_LVGL_PORT_ROTATION_DEGREE (0)
-
-#define LVGL_PORT_LCD_RGB_BUFFER_NUMS     (2)
-#define LVGL_PORT_FULL_REFRESH            (1)
-#define LVGL_PORT_DIRECT_MODE             (0)
 #define EXAMPLE_LVGL_PORT_ROTATION_0      (1)
 #define EXAMPLE_LVGL_PORT_ROTATION_90     (0)
 #define EXAMPLE_LVGL_PORT_ROTATION_180    (0)
