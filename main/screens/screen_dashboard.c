@@ -1,8 +1,10 @@
 #include "screen_dashboard.h"
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "app_model.h"
+#include "measurement_history.h"
 #include "theme.h"
 #include "lvgl.h"
 
@@ -10,6 +12,14 @@
 #include "well_widget.h"
 #include "weather_widget.h"
 #include "bottom_nav.h"
+
+typedef struct {
+    lv_obj_t *title_label;
+    lv_obj_t *range_label;
+    lv_obj_t *stats_label;
+    lv_obj_t *chart;
+    lv_chart_series_t *series;
+} history_chart_view_t;
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_dashboard_content = NULL;
@@ -19,10 +29,13 @@ static lv_obj_t *s_source_label = NULL;
 static bottom_nav_t *s_nav = NULL;
 static lv_timer_t *s_refresh_timer = NULL;
 static uint32_t s_last_revision = 0;
+static uint32_t s_last_history_revision = 0;
 
 static tank_widget_t s_tank_widget;
 static well_widget_t s_well_widget;
 static weather_widget_t s_weather_widget;
+static history_chart_view_t s_tank_history;
+static history_chart_view_t s_well_history;
 
 static lv_obj_t *create_bar(lv_obj_t *screen, lv_align_t align, int y)
 {
@@ -92,42 +105,58 @@ static lv_obj_t *create_history_panel(lv_obj_t *parent, int x)
     return panel;
 }
 
-static void create_history_chart(
+static history_chart_view_t create_history_chart(
     lv_obj_t *parent,
     const char *title_text,
-    lv_color_t color,
-    const lv_coord_t *values,
-    uint32_t count)
+    lv_color_t color)
 {
-    lv_obj_t *title = lv_label_create(parent);
-    lv_label_set_text(title, title_text);
-    lv_obj_set_style_text_color(title, color, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
+    history_chart_view_t view = {0};
 
-    lv_obj_t *range = lv_label_create(parent);
-    lv_label_set_text(range, "Ostatnie 24 h");
-    lv_obj_set_style_text_color(range, ST_COLOR_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(range, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_align(range, LV_ALIGN_TOP_RIGHT, 0, 0);
+    view.title_label = create_label(
+        parent,
+        title_text,
+        color,
+        LV_ALIGN_TOP_LEFT,
+        0,
+        0
+    );
 
-    lv_obj_t *chart = lv_chart_create(parent);
-    lv_obj_set_size(chart, 330, 235);
-    lv_obj_align(chart, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-    lv_chart_set_point_count(chart, count);
-    lv_chart_set_div_line_count(chart, 5, 6);
-    lv_obj_set_style_bg_color(chart, lv_color_hex(0x09131D), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(chart, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(chart, 0, LV_PART_MAIN);
-    lv_obj_set_style_line_color(chart, lv_color_hex(0x23384A), LV_PART_MAIN);
-    lv_obj_set_style_line_width(chart, 1, LV_PART_MAIN);
+    view.range_label = create_label(
+        parent,
+        "24 probki | 1 s",
+        ST_COLOR_TEXT_DIM,
+        LV_ALIGN_TOP_RIGHT,
+        0,
+        0
+    );
 
-    lv_chart_series_t *series = lv_chart_add_series(chart, color, LV_CHART_AXIS_PRIMARY_Y);
-    for (uint32_t i = 0; i < count; i++) {
-        lv_chart_set_next_value(chart, series, values[i]);
-    }
+    view.stats_label = create_label(
+        parent,
+        "MIN --   AVG --   MAX --",
+        ST_COLOR_TEXT_DIM,
+        LV_ALIGN_TOP_LEFT,
+        0,
+        23
+    );
+    lv_obj_set_style_text_font(view.stats_label, &lv_font_montserrat_12, LV_PART_MAIN);
+
+    view.chart = lv_chart_create(parent);
+    lv_obj_set_size(view.chart, 330, 215);
+    lv_obj_align(view.chart, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_chart_set_type(view.chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_range(view.chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_point_count(view.chart, MEASUREMENT_HISTORY_CAPACITY);
+    lv_chart_set_div_line_count(view.chart, 5, 6);
+    lv_obj_set_style_bg_color(view.chart, lv_color_hex(0x09131D), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(view.chart, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(view.chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_line_color(view.chart, lv_color_hex(0x23384A), LV_PART_MAIN);
+    lv_obj_set_style_line_width(view.chart, 1, LV_PART_MAIN);
+
+    view.series = lv_chart_add_series(view.chart, color, LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_all_value(view.chart, view.series, LV_CHART_POINT_NONE);
+
+    return view;
 }
 
 static void build_dashboard_content(void)
@@ -149,27 +178,116 @@ static void build_dashboard_content(void)
 
 static void build_history_content(void)
 {
-    static const lv_coord_t tank_values[24] = {
-        54, 55, 55, 56, 57, 58, 59, 60,
-        61, 62, 63, 64, 65, 66, 67, 68,
-        68, 69, 70, 70, 71, 71, 72, 72
-    };
-
-    static const lv_coord_t well_values[24] = {
-        76, 75, 74, 74, 73, 72, 71, 70,
-        69, 68, 69, 70, 71, 72, 73, 72,
-        71, 70, 70, 69, 70, 70, 70, 70
-    };
-
     s_history_content = create_content_layer(s_screen);
 
     lv_obj_t *tank_panel = create_history_panel(s_history_content, 20);
-    create_history_chart(tank_panel, "SZAMBO  72%", lv_color_hex(0x39D12F), tank_values, 24);
+    s_tank_history = create_history_chart(
+        tank_panel,
+        "SZAMBO  --%",
+        lv_color_hex(0x39D12F)
+    );
 
     lv_obj_t *well_panel = create_history_panel(s_history_content, 410);
-    create_history_chart(well_panel, "STUDNIA  2.81 m", lv_color_hex(0x2EA8FF), well_values, 24);
+    s_well_history = create_history_chart(
+        well_panel,
+        "STUDNIA  --%",
+        lv_color_hex(0x2EA8FF)
+    );
 
     lv_obj_add_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void update_history_chart(
+    history_chart_view_t *view,
+    const measurement_history_snapshot_t *history,
+    bool tank_chart)
+{
+    for (uint32_t i = 0; i < MEASUREMENT_HISTORY_CAPACITY; i++) {
+        lv_chart_set_value_by_id(
+            view->chart,
+            view->series,
+            (uint16_t)i,
+            LV_CHART_POINT_NONE
+        );
+    }
+
+    if (history->count == 0U) {
+        lv_label_set_text(view->stats_label, "Brak probek");
+        lv_chart_refresh(view->chart);
+        return;
+    }
+
+    int minimum = 101;
+    int maximum = -1;
+    int sum = 0;
+    const uint32_t offset = MEASUREMENT_HISTORY_CAPACITY - history->count;
+
+    for (uint32_t i = 0; i < history->count; i++) {
+        const int value = tank_chart
+            ? history->samples[i].tank_percent
+            : history->samples[i].well_percent;
+
+        lv_chart_set_value_by_id(
+            view->chart,
+            view->series,
+            (uint16_t)(offset + i),
+            value
+        );
+
+        if (value < minimum) {
+            minimum = value;
+        }
+        if (value > maximum) {
+            maximum = value;
+        }
+        sum += value;
+    }
+
+    const int latest = tank_chart
+        ? history->samples[history->count - 1U].tank_percent
+        : history->samples[history->count - 1U].well_percent;
+    const float average = (float)sum / (float)history->count;
+
+    char buffer[64];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        tank_chart ? "SZAMBO  %d%%" : "STUDNIA  %d%%",
+        latest
+    );
+    lv_label_set_text(view->title_label, buffer);
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "MIN %d%%   AVG %.0f%%   MAX %d%%",
+        minimum,
+        average,
+        maximum
+    );
+    lv_label_set_text(view->stats_label, buffer);
+    lv_chart_refresh(view->chart);
+}
+
+static void refresh_history_from_model(bool force, const smarttank_state_t *state)
+{
+    measurement_history_snapshot_t history;
+    measurement_history_get_snapshot(&history);
+
+    if (!force && history.revision == s_last_history_revision) {
+        return;
+    }
+
+    s_last_history_revision = history.revision;
+
+    const char *range_text = state->system.simulation_active
+        ? "24 probki | 1 s"
+        : "Ostatnie 24 h";
+    lv_label_set_text(s_tank_history.range_label, range_text);
+    lv_label_set_text(s_well_history.range_label, range_text);
+
+    update_history_chart(&s_tank_history, &history, true);
+    update_history_chart(&s_well_history, &history, false);
 }
 
 static void refresh_dashboard_from_model(bool force)
@@ -177,41 +295,41 @@ static void refresh_dashboard_from_model(bool force)
     smarttank_state_t state;
     app_model_get_snapshot(&state);
 
-    if (!force && state.revision == s_last_revision) {
-        return;
+    if (force || state.revision != s_last_revision) {
+        s_last_revision = state.revision;
+
+        tank_widget_set_data(
+            &s_tank_widget,
+            state.tank.level_percent,
+            state.tank.volume_m3,
+            state.tank.capacity_m3
+        );
+
+        well_widget_set_data(
+            &s_well_widget,
+            state.well.water_column_m,
+            state.well.well_depth_m
+        );
+
+        weather_widget_set_current(
+            &s_weather_widget,
+            state.weather.temperature_c,
+            state.weather.rain_percent,
+            state.weather.wind_kmh,
+            state.weather.humidity_percent,
+            state.weather.description
+        );
+
+        if (state.system.simulation_active) {
+            lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
+        } else if (state.system.modbus_connected) {
+            lv_label_set_text(s_source_label, "MODBUS RTU | ONLINE");
+        } else {
+            lv_label_set_text(s_source_label, "MODBUS RTU | OFFLINE");
+        }
     }
 
-    s_last_revision = state.revision;
-
-    tank_widget_set_data(
-        &s_tank_widget,
-        state.tank.level_percent,
-        state.tank.volume_m3,
-        state.tank.capacity_m3
-    );
-
-    well_widget_set_data(
-        &s_well_widget,
-        state.well.water_column_m,
-        state.well.well_depth_m
-    );
-
-    weather_widget_set_current(
-        &s_weather_widget,
-        state.weather.temperature_c,
-        state.weather.rain_percent,
-        state.weather.wind_kmh,
-        state.weather.humidity_percent,
-        state.weather.description
-    );
-
-    if (state.system.simulation_active) {
-        lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
-    } else if (state.system.modbus_connected) {
-        lv_label_set_text(s_source_label, "MODBUS RTU | ONLINE");
-    } else {
-        lv_label_set_text(s_source_label, "MODBUS RTU | OFFLINE");
-    }
+    refresh_history_from_model(force, &state);
 }
 
 static void dashboard_refresh_cb(lv_timer_t *timer)
