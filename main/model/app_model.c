@@ -2,9 +2,13 @@
 
 #include <string.h>
 
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "settings_storage.h"
+
+static const char *TAG = "app_model";
 static SemaphoreHandle_t s_model_mutex;
 static smarttank_state_t s_state;
 
@@ -30,6 +34,25 @@ static bool tank_config_is_valid(const tank_channel_config_t *config)
            config->warning_percent >= 1 &&
            config->warning_percent < config->critical_percent &&
            config->critical_percent <= 100;
+}
+
+static bool apply_tank_config(const tank_channel_config_t *config)
+{
+    if (!tank_config_is_valid(config) || !model_lock()) {
+        return false;
+    }
+
+    s_state.tank_config = *config;
+    s_state.tank_config.sensor_model[sizeof(s_state.tank_config.sensor_model) - 1U] = '\0';
+    s_state.tank_config.input_mode[sizeof(s_state.tank_config.input_mode) - 1U] = '\0';
+
+    s_state.tank.capacity_m3 = config->capacity_m3;
+    s_state.tank.volume_m3 =
+        config->capacity_m3 * (float)s_state.tank.level_percent / 100.0f;
+
+    s_state.revision++;
+    model_unlock();
+    return true;
 }
 
 esp_err_t app_model_init(void)
@@ -116,22 +139,28 @@ void app_model_update_tank(const tank_measurement_t *measurement)
     model_unlock();
 }
 
+void app_model_restore_tank_config(const tank_channel_config_t *config)
+{
+    if (apply_tank_config(config)) {
+        ESP_LOGI(TAG, "Tank configuration restored into application model");
+    }
+}
+
 void app_model_update_tank_config(const tank_channel_config_t *config)
 {
-    if (!tank_config_is_valid(config) || !model_lock()) {
+    if (!apply_tank_config(config)) {
+        ESP_LOGE(TAG, "Rejected invalid tank configuration");
         return;
     }
 
-    s_state.tank_config = *config;
-    s_state.tank_config.sensor_model[sizeof(s_state.tank_config.sensor_model) - 1U] = '\0';
-    s_state.tank_config.input_mode[sizeof(s_state.tank_config.input_mode) - 1U] = '\0';
-
-    s_state.tank.capacity_m3 = config->capacity_m3;
-    s_state.tank.volume_m3 =
-        config->capacity_m3 * (float)s_state.tank.level_percent / 100.0f;
-
-    s_state.revision++;
-    model_unlock();
+    const esp_err_t err = settings_storage_save_tank_config(config);
+    if (err != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Unable to persist tank configuration: %s",
+            esp_err_to_name(err)
+        );
+    }
 }
 
 void app_model_update_well(const well_measurement_t *measurement)
