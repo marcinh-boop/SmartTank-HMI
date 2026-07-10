@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "app_model.h"
+#include "clock_service.h"
 #include "measurement_history.h"
 #include "screen_tank_calibration.h"
 #include "screen_tank_detail.h"
@@ -335,6 +336,45 @@ static void refresh_history_from_model(bool force, const smarttank_state_t *stat
     update_history_chart(&s_well_history, &history, false);
 }
 
+static void refresh_header_status(const smarttank_state_t *state)
+{
+    const char *source_text;
+    if (state->system.simulation_active) {
+        source_text = "SYMULACJA | RS485 OFF";
+    } else if (state->system.modbus_connected) {
+        source_text = "MODBUS RTU | ONLINE";
+    } else {
+        source_text = "MODBUS RTU | OFFLINE";
+    }
+
+    clock_service_snapshot_t clock;
+    clock_service_get_snapshot(&clock);
+
+    char buffer[96];
+    if (clock.system_time_valid) {
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "%02u.%02u.%04u %02u:%02u\n%s",
+            (unsigned int)clock.local_datetime.day,
+            (unsigned int)clock.local_datetime.month,
+            (unsigned int)clock.local_datetime.year,
+            (unsigned int)clock.local_datetime.hour,
+            (unsigned int)clock.local_datetime.minute,
+            source_text
+        );
+    } else {
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "--.--.---- --:--\n%s",
+            source_text
+        );
+    }
+
+    lv_label_set_text(s_source_label, buffer);
+}
+
 static void refresh_dashboard_from_model(bool force)
 {
     smarttank_state_t state;
@@ -369,16 +409,9 @@ static void refresh_dashboard_from_model(bool force)
 
         screen_tank_detail_update(&state);
         screen_tank_calibration_update_live(&state);
-
-        if (state.system.simulation_active) {
-            lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
-        } else if (state.system.modbus_connected) {
-            lv_label_set_text(s_source_label, "MODBUS RTU | ONLINE");
-        } else {
-            lv_label_set_text(s_source_label, "MODBUS RTU | OFFLINE");
-        }
     }
 
+    refresh_header_status(&state);
     refresh_history_from_model(force, &state);
 }
 
@@ -448,7 +481,17 @@ static void build_screen(void)
     lv_obj_t *top = create_bar(s_screen, LV_ALIGN_TOP_MID, 8);
     create_label(top, "SmartTank HMI", ST_COLOR_TEXT, LV_ALIGN_LEFT_MID, 12, 0);
     s_page_label = create_label(top, "PULPIT", ST_COLOR_ACCENT, LV_ALIGN_CENTER, 0, 0);
-    s_source_label = create_label(top, "SYMULACJA | RS485: OFF", ST_COLOR_TEXT_DIM, LV_ALIGN_RIGHT_MID, -12, 0);
+    s_source_label = create_label(
+        top,
+        "--.--.---- --:--\nSYMULACJA | RS485 OFF",
+        ST_COLOR_TEXT_DIM,
+        LV_ALIGN_RIGHT_MID,
+        -12,
+        0
+    );
+    lv_obj_set_width(s_source_label, 230);
+    lv_obj_set_style_text_font(s_source_label, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_align(s_source_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 
     build_dashboard_content();
     build_history_content();
