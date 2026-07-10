@@ -17,12 +17,14 @@ idf_component_register(
         "services/clock_service.c"
         "services/data_simulator.c"
         "services/settings_storage.c"
+        "services/wifi_service.c"
 
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
         "screens/screen_tank_detail.c"
         "screens/screen_tank_calibration.c"
         "screens/screen_service.c"
+        "screens/screen_settings.c"
         "screens/screen_history.c"
         "screens/screen_display_test.c"
 
@@ -47,5 +49,8 @@ idf_component_register(
 
     PRIV_REQUIRES
         driver
+        esp_event
+        esp_netif
+        esp_wifi
         nvs_flash
 )
