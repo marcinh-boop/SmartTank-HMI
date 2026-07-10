@@ -29,6 +29,7 @@ idf_component_register(
         "screens/screen_history.c"
         "screens/screen_display_test.c"
 
+        "ui/panel_icons.c"
         "ui/theme.c"
 
         "widgets/widget_common.c"
