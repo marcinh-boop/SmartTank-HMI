@@ -21,23 +21,29 @@ static uint32_t triangle_wave(uint32_t step, uint32_t amplitude)
 
 static void publish_simulated_state(uint32_t tick)
 {
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+
+    const tank_channel_config_t *config = &state.tank_config;
     const int tank_percent = 65 + (int)triangle_wave(tick / 2U, 20U);
-    const float tank_capacity_m3 = 10.50f;
+    const float tank_span_mm = config->distance_empty_mm - config->distance_full_mm;
+    const float tank_distance_mm =
+        config->distance_empty_mm - tank_span_mm * (float)tank_percent / 100.0f;
 
     tank_measurement_t tank = {
         .level_percent = tank_percent,
-        .volume_m3 = tank_capacity_m3 * (float)tank_percent / 100.0f,
-        .capacity_m3 = tank_capacity_m3,
-        .distance_mm = 1500.0f - (float)tank_percent * 10.0f,
+        .volume_m3 = config->capacity_m3 * (float)tank_percent / 100.0f,
+        .capacity_m3 = config->capacity_m3,
+        .distance_mm = tank_distance_mm,
         .current_ma = 4.0f + (float)tank_percent * 0.16f,
         .valid = true,
         .health = SENSOR_HEALTH_OK,
         .sample_counter = tick + 1U,
     };
 
-    if (tank_percent >= 90) {
+    if (tank_percent >= config->critical_percent) {
         tank.health = SENSOR_HEALTH_CRITICAL;
-    } else if (tank_percent >= 80) {
+    } else if (tank_percent >= config->warning_percent) {
         tank.health = SENSOR_HEALTH_WARNING;
     }
 
