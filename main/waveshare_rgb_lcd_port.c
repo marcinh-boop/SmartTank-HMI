@@ -6,17 +6,6 @@
 
 #include "waveshare_rgb_lcd_port.h"
 
-IRAM_ATTR static bool rgb_lcd_on_vsync_event(
-    esp_lcd_panel_handle_t panel,
-    const esp_lcd_rgb_panel_event_data_t *edata,
-    void *user_ctx)
-{
-    (void)panel;
-    (void)edata;
-    (void)user_ctx;
-    return lvgl_port_notify_rgb_vsync();
-}
-
 #if CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911
 static esp_err_t i2c_master_init(void)
 {
@@ -85,7 +74,6 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
             .vsync_front_porch = 12,
             .vsync_pulse_width = 2,
 #else
-            /* Exact timing from Waveshare 05_IO_Test for the 800x480 panel. */
             .hsync_back_porch = 8,
             .hsync_front_porch = 8,
             .hsync_pulse_width = 4,
@@ -100,7 +88,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
         .data_width = EXAMPLE_RGB_DATA_WIDTH,
         .bits_per_pixel = EXAMPLE_RGB_BIT_PER_PIXEL,
         .num_fbs = LVGL_PORT_LCD_RGB_BUFFER_NUMS,
-        .bounce_buffer_size_px = 0,
+        .bounce_buffer_size_px = EXAMPLE_RGB_BOUNCE_BUFFER_SIZE,
+        .dma_burst_size = 64,
         .sram_trans_align = 4,
         .psram_trans_align = 64,
         .hsync_gpio_num = EXAMPLE_LCD_IO_RGB_HSYNC,
@@ -132,12 +121,6 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
     };
 
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
-
-    /* Register VSYNC before starting scanout, exactly as in the Waveshare demo. */
-    const esp_lcd_rgb_panel_event_callbacks_t cbs = {
-        .on_vsync = rgb_lcd_on_vsync_event,
-    };
-    ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(panel_handle, &cbs, NULL));
 
     ESP_LOGI(TAG, "Reset and initialize RGB LCD panel");
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
@@ -181,6 +164,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
 #endif
 
     ESP_ERROR_CHECK(lvgl_port_init(panel_handle, tp_handle));
+    ESP_LOGI(TAG, "RGB mode: 1 PSRAM FB, %d-pixel bounce buffers, %d Hz PCLK",
+             EXAMPLE_RGB_BOUNCE_BUFFER_SIZE, EXAMPLE_LCD_PIXEL_CLOCK_HZ);
     return ESP_OK;
 }
 
