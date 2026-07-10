@@ -8,6 +8,7 @@
 #include "measurement_history.h"
 #include "clock_service.h"
 #include "data_simulator.h"
+#include "ntp_service.h"
 #include "settings_storage.h"
 #include "wifi_service.h"
 #include "lvgl_port.h"
@@ -73,6 +74,15 @@ void app_start(void)
                 esp_err_to_name(credentials_result)
             );
         }
+    }
+
+    const esp_err_t ntp_result = ntp_service_start();
+    if (ntp_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "NTP service unavailable: %s",
+            esp_err_to_name(ntp_result)
+        );
     }
 
     ESP_ERROR_CHECK(data_simulator_start());
