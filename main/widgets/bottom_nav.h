@@ -25,6 +25,7 @@ typedef struct {
 struct bottom_nav {
     lv_obj_t *root;
     lv_obj_t *buttons[NAV_ITEM_COUNT];
+    lv_obj_t *icons[NAV_ITEM_COUNT];
     lv_obj_t *labels[NAV_ITEM_COUNT];
     bottom_nav_button_ctx_t contexts[NAV_ITEM_COUNT];
     bottom_nav_page_t active_page;
