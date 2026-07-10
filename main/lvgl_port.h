@@ -44,8 +44,14 @@ extern "C" {
 #define LVGL_PORT_TASK_CORE         (CONFIG_EXAMPLE_LVGL_PORT_TASK_CORE)
 
 /**
- * LVGL buffer related parameters, can be adjusted by users.
- * These parameters are unused when tearing prevention is enabled.
+ * LVGL buffer related parameters, can be adjusted by users:
+ *  (These parameters will be useless if the avoid tearing function is enabled)
+ *
+ *  - Memory type for buffer allocation:
+ *      - MALLOC_CAP_SPIRAM: Allocate LVGL buffer in PSRAM
+ *      - MALLOC_CAP_INTERNAL: Allocate LVGL buffer in SRAM
+ *      (The SRAM is faster than PSRAM, but the PSRAM has a larger capacity)
+ *
  */
 #if CONFIG_EXAMPLE_LVGL_PORT_BUF_PSRAM
 #define LVGL_PORT_BUFFER_MALLOC_CAPS    (MALLOC_CAP_SPIRAM)
@@ -55,15 +61,12 @@ extern "C" {
 #define LVGL_PORT_BUFFER_HEIGHT         (CONFIG_EXAMPLE_LVGL_PORT_BUF_HEIGHT)
 
 /**
- * Two complete RGB frame buffers with LVGL direct mode are the most stable
- * option for this 800x480 panel. Triple-buffer full-refresh caused visible
- * frame bouncing even on simple touch invalidation.
+ * Avoid tearing related configurations, controlled by menuconfig.
  */
-#define LVGL_PORT_AVOID_TEAR_ENABLE       (1)
-#define LVGL_PORT_AVOID_TEAR_MODE         (3)
-#define EXAMPLE_LVGL_PORT_ROTATION_DEGREE (0)
-
+#define LVGL_PORT_AVOID_TEAR_ENABLE     (CONFIG_EXAMPLE_LVGL_PORT_AVOID_TEAR_ENABLE)
 #if LVGL_PORT_AVOID_TEAR_ENABLE
+#define LVGL_PORT_AVOID_TEAR_MODE       (CONFIG_EXAMPLE_LVGL_PORT_AVOID_TEAR_MODE)
+#define EXAMPLE_LVGL_PORT_ROTATION_DEGREE  (CONFIG_EXAMPLE_LVGL_PORT_ROTATION_DEGREE)
 
 #if LVGL_PORT_AVOID_TEAR_MODE == 1
 #define LVGL_PORT_LCD_RGB_BUFFER_NUMS   (2)
@@ -77,8 +80,6 @@ extern "C" {
 #define LVGL_PORT_LCD_RGB_BUFFER_NUMS   (2)
 #define LVGL_PORT_FULL_REFRESH          (0)
 #define LVGL_PORT_DIRECT_MODE           (1)
-#else
-#error "Unsupported LVGL_PORT_AVOID_TEAR_MODE"
 #endif
 
 #if EXAMPLE_LVGL_PORT_ROTATION_DEGREE == 0
@@ -101,15 +102,12 @@ extern "C" {
 #define EXAMPLE_LVGL_PORT_ROTATION_90   (0)
 #define EXAMPLE_LVGL_PORT_ROTATION_180  (0)
 #define EXAMPLE_LVGL_PORT_ROTATION_270  (1)
-#else
-#error "Unsupported EXAMPLE_LVGL_PORT_ROTATION_DEGREE"
 #endif
 
 #if EXAMPLE_LVGL_PORT_ROTATION_DEGREE != 0
 #undef LVGL_PORT_LCD_RGB_BUFFER_NUMS
 #define LVGL_PORT_LCD_RGB_BUFFER_NUMS   (3)
 #endif
-
 #else
 #define LVGL_PORT_LCD_RGB_BUFFER_NUMS   (1)
 #define LVGL_PORT_FULL_REFRESH          (0)
