@@ -46,6 +46,33 @@ void app_start(void)
             "Wi-Fi service unavailable: %s",
             esp_err_to_name(wifi_result)
         );
+    } else {
+        wifi_credentials_t credentials;
+        const esp_err_t credentials_result =
+            settings_storage_load_wifi_credentials(&credentials);
+
+        if (credentials_result == ESP_OK) {
+            const esp_err_t connect_result = wifi_service_connect(
+                credentials.ssid,
+                credentials.password
+            );
+
+            if (connect_result != ESP_OK) {
+                ESP_LOGW(
+                    TAG,
+                    "Unable to restore Wi-Fi connection: %s",
+                    esp_err_to_name(connect_result)
+                );
+            }
+        } else if (credentials_result == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGI(TAG, "No saved Wi-Fi network; radio remains ready");
+        } else {
+            ESP_LOGW(
+                TAG,
+                "Unable to load Wi-Fi credentials: %s",
+                esp_err_to_name(credentials_result)
+            );
+        }
     }
 
     ESP_ERROR_CHECK(data_simulator_start());
