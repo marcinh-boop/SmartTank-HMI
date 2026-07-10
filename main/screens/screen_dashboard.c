@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "app_model.h"
 #include "clock_service.h"
@@ -20,6 +21,7 @@ typedef struct {
     lv_obj_t *title_label;
     lv_obj_t *range_label;
     lv_obj_t *stats_label;
+    lv_obj_t *sample_time_label;
     lv_obj_t *chart;
     lv_chart_series_t *series;
 } history_chart_view_t;
@@ -133,12 +135,15 @@ static history_chart_view_t create_history_chart(
 
     view.range_label = create_label(
         parent,
-        "24 probki | 1 s",
+        "CZAS: OCZEKIWANIE",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_TOP_RIGHT,
         0,
-        0
+        1
     );
+    lv_obj_set_width(view.range_label, 220);
+    lv_obj_set_style_text_font(view.range_label, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_align(view.range_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 
     view.stats_label = create_label(
         parent,
@@ -149,6 +154,20 @@ static history_chart_view_t create_history_chart(
         23
     );
     lv_obj_set_style_text_font(view.stats_label, &lv_font_montserrat_12, LV_PART_MAIN);
+
+    view.sample_time_label = create_label(
+        parent,
+        "OSTATNIA PROBKA: --",
+        ST_COLOR_TEXT_DIM,
+        LV_ALIGN_TOP_LEFT,
+        0,
+        46
+    );
+    lv_obj_set_style_text_font(
+        view.sample_time_label,
+        &lv_font_montserrat_12,
+        LV_PART_MAIN
+    );
 
     view.chart = lv_chart_create(parent);
     lv_obj_set_size(view.chart, 330, 215);
@@ -167,6 +186,119 @@ static history_chart_view_t create_history_chart(
     lv_chart_set_all_value(view.chart, view.series, LV_CHART_POINT_NONE);
 
     return view;
+}
+
+static bool sample_to_local_time(
+    const measurement_history_sample_t *sample,
+    struct tm *local_time)
+{
+    if (sample == NULL || local_time == NULL || !sample->timestamp_valid) {
+        return false;
+    }
+
+    const time_t epoch = (time_t)sample->epoch_seconds;
+    return localtime_r(&epoch, local_time) != NULL;
+}
+
+static void format_history_range(
+    const measurement_history_snapshot_t *history,
+    char *buffer,
+    size_t buffer_size)
+{
+    if (history == NULL || buffer == NULL || buffer_size == 0U) {
+        return;
+    }
+
+    const measurement_history_sample_t *first = NULL;
+    const measurement_history_sample_t *last = NULL;
+
+    for (uint32_t i = 0U; i < history->count; i++) {
+        if (!history->samples[i].timestamp_valid) {
+            continue;
+        }
+
+        if (first == NULL) {
+            first = &history->samples[i];
+        }
+        last = &history->samples[i];
+    }
+
+    struct tm first_time = {0};
+    struct tm last_time = {0};
+    if (first == NULL || last == NULL ||
+        !sample_to_local_time(first, &first_time) ||
+        !sample_to_local_time(last, &last_time)) {
+        snprintf(buffer, buffer_size, "CZAS: OCZEKIWANIE");
+        return;
+    }
+
+    if (first == last) {
+        snprintf(
+            buffer,
+            buffer_size,
+            "%02d:%02d:%02d",
+            first_time.tm_hour,
+            first_time.tm_min,
+            first_time.tm_sec
+        );
+        return;
+    }
+
+    const bool same_day =
+        first_time.tm_year == last_time.tm_year &&
+        first_time.tm_yday == last_time.tm_yday;
+
+    if (same_day) {
+        snprintf(
+            buffer,
+            buffer_size,
+            "%02d:%02d:%02d - %02d:%02d:%02d",
+            first_time.tm_hour,
+            first_time.tm_min,
+            first_time.tm_sec,
+            last_time.tm_hour,
+            last_time.tm_min,
+            last_time.tm_sec
+        );
+    } else {
+        snprintf(
+            buffer,
+            buffer_size,
+            "%02d.%02d %02d:%02d - %02d.%02d %02d:%02d",
+            first_time.tm_mday,
+            first_time.tm_mon + 1,
+            first_time.tm_hour,
+            first_time.tm_min,
+            last_time.tm_mday,
+            last_time.tm_mon + 1,
+            last_time.tm_hour,
+            last_time.tm_min
+        );
+    }
+}
+
+static void format_latest_sample_time(
+    const measurement_history_sample_t *sample,
+    char *buffer,
+    size_t buffer_size)
+{
+    struct tm local_time = {0};
+    if (!sample_to_local_time(sample, &local_time)) {
+        snprintf(buffer, buffer_size, "OSTATNIA PROBKA: CZAS NIEDOSTEPNY");
+        return;
+    }
+
+    snprintf(
+        buffer,
+        buffer_size,
+        "OSTATNIA: %02d.%02d.%04d %02d:%02d:%02d",
+        local_time.tm_mday,
+        local_time.tm_mon + 1,
+        local_time.tm_year + 1900,
+        local_time.tm_hour,
+        local_time.tm_min,
+        local_time.tm_sec
+    );
 }
 
 static void tank_card_event_cb(lv_event_t *event)
@@ -259,6 +391,7 @@ static void update_history_chart(
 
     if (history->count == 0U) {
         lv_label_set_text(view->stats_label, "Brak probek");
+        lv_label_set_text(view->sample_time_label, "OSTATNIA PROBKA: --");
         lv_chart_refresh(view->chart);
         return;
     }
@@ -289,12 +422,14 @@ static void update_history_chart(
         sum += value;
     }
 
+    const measurement_history_sample_t *latest_sample =
+        &history->samples[history->count - 1U];
     const int latest = tank_chart
-        ? history->samples[history->count - 1U].tank_percent
-        : history->samples[history->count - 1U].well_percent;
+        ? latest_sample->tank_percent
+        : latest_sample->well_percent;
     const float average = (float)sum / (float)history->count;
 
-    char buffer[64];
+    char buffer[96];
     snprintf(
         buffer,
         sizeof(buffer),
@@ -312,10 +447,13 @@ static void update_history_chart(
         maximum
     );
     lv_label_set_text(view->stats_label, buffer);
+
+    format_latest_sample_time(latest_sample, buffer, sizeof(buffer));
+    lv_label_set_text(view->sample_time_label, buffer);
     lv_chart_refresh(view->chart);
 }
 
-static void refresh_history_from_model(bool force, const smarttank_state_t *state)
+static void refresh_history_from_model(bool force)
 {
     measurement_history_snapshot_t history;
     measurement_history_get_snapshot(&history);
@@ -326,9 +464,8 @@ static void refresh_history_from_model(bool force, const smarttank_state_t *stat
 
     s_last_history_revision = history.revision;
 
-    const char *range_text = state->system.simulation_active
-        ? "24 probki | 1 s"
-        : "Ostatnie 24 h";
+    char range_text[64];
+    format_history_range(&history, range_text, sizeof(range_text));
     lv_label_set_text(s_tank_history.range_label, range_text);
     lv_label_set_text(s_well_history.range_label, range_text);
 
@@ -412,7 +549,7 @@ static void refresh_dashboard_from_model(bool force)
     }
 
     refresh_header_status(&state);
-    refresh_history_from_model(force, &state);
+    refresh_history_from_model(force);
 }
 
 static void dashboard_refresh_cb(lv_timer_t *timer)
