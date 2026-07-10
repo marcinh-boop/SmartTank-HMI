@@ -1,4 +1,8 @@
 #include "screen_dashboard.h"
+
+#include <stdint.h>
+
+#include "app_model.h"
 #include "theme.h"
 #include "lvgl.h"
 
@@ -11,7 +15,14 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_dashboard_content = NULL;
 static lv_obj_t *s_history_content = NULL;
 static lv_obj_t *s_page_label = NULL;
+static lv_obj_t *s_source_label = NULL;
 static bottom_nav_t *s_nav = NULL;
+static lv_timer_t *s_refresh_timer = NULL;
+static uint32_t s_last_revision = 0;
+
+static tank_widget_t s_tank_widget;
+static well_widget_t s_well_widget;
+static weather_widget_t s_weather_widget;
 
 static lv_obj_t *create_bar(lv_obj_t *screen, lv_align_t align, int y)
 {
@@ -125,18 +136,15 @@ static void build_dashboard_content(void)
 
     lv_obj_t *tank_card = create_card(s_dashboard_content, lv_color_hex(0x39D12F));
     lv_obj_align(tank_card, LV_ALIGN_TOP_LEFT, 20, 10);
-    tank_widget_t tank = tank_widget_create(tank_card);
-    tank_widget_set_data(&tank, 72, 7.56f, 10.50f);
+    s_tank_widget = tank_widget_create(tank_card);
 
     lv_obj_t *well_card = create_card(s_dashboard_content, lv_color_hex(0x2EA8FF));
     lv_obj_align(well_card, LV_ALIGN_TOP_MID, 0, 10);
-    well_widget_t well = well_widget_create(well_card);
-    well_widget_set_data(&well, 2.81f, 4.00f);
+    s_well_widget = well_widget_create(well_card);
 
     lv_obj_t *weather_card = create_card(s_dashboard_content, lv_color_hex(0xFFC247));
     lv_obj_align(weather_card, LV_ALIGN_TOP_RIGHT, -20, 10);
-    weather_widget_t weather = weather_widget_create(weather_card);
-    weather_widget_set_current(&weather, 18.6f, 10, 12.0f, 62, "Zachmurzenie");
+    s_weather_widget = weather_widget_create(weather_card);
 }
 
 static void build_history_content(void)
@@ -162,6 +170,54 @@ static void build_history_content(void)
     create_history_chart(well_panel, "STUDNIA  2.81 m", lv_color_hex(0x2EA8FF), well_values, 24);
 
     lv_obj_add_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void refresh_dashboard_from_model(bool force)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+
+    if (!force && state.revision == s_last_revision) {
+        return;
+    }
+
+    s_last_revision = state.revision;
+
+    tank_widget_set_data(
+        &s_tank_widget,
+        state.tank.level_percent,
+        state.tank.volume_m3,
+        state.tank.capacity_m3
+    );
+
+    well_widget_set_data(
+        &s_well_widget,
+        state.well.water_column_m,
+        state.well.well_depth_m
+    );
+
+    weather_widget_set_current(
+        &s_weather_widget,
+        state.weather.temperature_c,
+        state.weather.rain_percent,
+        state.weather.wind_kmh,
+        state.weather.humidity_percent,
+        state.weather.description
+    );
+
+    if (state.system.simulation_active) {
+        lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
+    } else if (state.system.modbus_connected) {
+        lv_label_set_text(s_source_label, "MODBUS RTU | ONLINE");
+    } else {
+        lv_label_set_text(s_source_label, "MODBUS RTU | OFFLINE");
+    }
+}
+
+static void dashboard_refresh_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    refresh_dashboard_from_model(false);
 }
 
 static void show_page(bottom_nav_page_t page)
@@ -197,13 +253,15 @@ static void build_screen(void)
     lv_obj_t *top = create_bar(s_screen, LV_ALIGN_TOP_MID, 8);
     create_label(top, "SmartTank HMI", ST_COLOR_TEXT, LV_ALIGN_LEFT_MID, 12, 0);
     s_page_label = create_label(top, "PULPIT", ST_COLOR_ACCENT, LV_ALIGN_CENTER, 0, 0);
-    create_label(top, "12:30   09.07.2026", ST_COLOR_TEXT, LV_ALIGN_RIGHT_MID, -12, 0);
+    s_source_label = create_label(top, "SYMULACJA | RS485: OFF", ST_COLOR_TEXT_DIM, LV_ALIGN_RIGHT_MID, -12, 0);
 
     build_dashboard_content();
     build_history_content();
 
     lv_obj_t *bottom = create_bar(s_screen, LV_ALIGN_BOTTOM_MID, -8);
     s_nav = bottom_nav_create(bottom, NAV_DASHBOARD, nav_change);
+
+    s_refresh_timer = lv_timer_create(dashboard_refresh_cb, 500, NULL);
 }
 
 void screen_dashboard_create(void)
@@ -212,6 +270,7 @@ void screen_dashboard_create(void)
         build_screen();
     }
 
+    refresh_dashboard_from_model(true);
     show_page(NAV_DASHBOARD);
     bottom_nav_set_active(s_nav, NAV_DASHBOARD);
     lv_scr_load(s_screen);
