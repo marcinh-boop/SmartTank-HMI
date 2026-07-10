@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "nvs.h"
 
 #include "app_model.h"
 #include "measurement_history.h"
@@ -22,7 +23,7 @@ void app_start(void)
         settings_storage_load_tank_config(&stored_config);
 
     if (load_result == ESP_OK) {
-        app_model_update_tank_config(&stored_config);
+        app_model_restore_tank_config(&stored_config);
     } else if (load_result == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "No saved tank configuration; using defaults");
     } else {
