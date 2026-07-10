@@ -81,38 +81,6 @@ static lv_obj_t *create_panel(lv_obj_t *parent, int x, int width)
     return panel;
 }
 
-static lv_obj_t *create_action_button(
-    lv_obj_t *parent,
-    const char *text,
-    int width,
-    int height,
-    calibration_action_t action)
-{
-    lv_obj_t *button = lv_btn_create(parent);
-    lv_obj_set_size(button, width, height);
-    lv_obj_set_style_bg_color(button, CAL_BUTTON, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(button, CAL_BUTTON_DOWN, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(button, 7, LV_PART_MAIN);
-    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(button, CAL_BLUE, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
-    create_label(button, text, ST_COLOR_TEXT, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(
-        button,
-        NULL,
-        LV_EVENT_ALL,
-        NULL
-    );
-    lv_obj_remove_event_cb(button, NULL);
-    lv_obj_add_event_cb(
-        button,
-        NULL,
-        LV_EVENT_ALL,
-        (void *)(intptr_t)action
-    );
-    return button;
-}
-
 static lv_obj_t *create_simple_button(
     lv_obj_t *parent,
     const char *text,
