@@ -6,8 +6,13 @@ idf_component_register(
 
         "app/app.c"
 
+        "drivers/rs485_port.c"
+
         "model/app_model.c"
         "model/measurement_history.c"
+
+        "protocol/modbus_rtu_client.c"
+
         "services/data_simulator.c"
         "services/settings_storage.c"
 
@@ -29,12 +34,15 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "app"
+        "drivers"
         "model"
+        "protocol"
         "services"
         "screens"
         "ui"
         "widgets"
 
     PRIV_REQUIRES
+        driver
         nvs_flash
 )
