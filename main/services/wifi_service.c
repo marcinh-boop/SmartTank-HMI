@@ -1,22 +1,28 @@
 #include "wifi_service.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#define WIFI_SCAN_FETCH_MAX  16U
+#define WIFI_SCAN_FETCH_MAX      16U
+#define WIFI_CONNECT_MAX_RETRIES 5U
 
 static const char *TAG = "wifi_service";
 
 static SemaphoreHandle_t s_mutex;
 static TaskHandle_t s_scan_task;
 static wifi_service_snapshot_t s_snapshot;
+static bool s_connect_requested;
+static esp_event_handler_instance_t s_wifi_event_instance;
+static esp_event_handler_instance_t s_ip_event_instance;
 
 static bool state_lock(void)
 {
@@ -161,6 +167,96 @@ static void scan_task(void *arg)
     }
 }
 
+static void wifi_event_handler(
+    void *arg,
+    esp_event_base_t event_base,
+    int32_t event_id,
+    void *event_data)
+{
+    (void)arg;
+    (void)event_base;
+
+    if (event_id != WIFI_EVENT_STA_DISCONNECTED) {
+        return;
+    }
+
+    const wifi_event_sta_disconnected_t *event = event_data;
+    bool retry = false;
+
+    if (state_lock()) {
+        s_snapshot.connected = false;
+        s_snapshot.connecting = false;
+        s_snapshot.rssi = 0;
+        strncpy(
+            s_snapshot.ip_address,
+            "0.0.0.0",
+            sizeof(s_snapshot.ip_address) - 1U
+        );
+        s_snapshot.ip_address[sizeof(s_snapshot.ip_address) - 1U] = '\0';
+        s_snapshot.last_disconnect_reason = event != NULL ? event->reason : 0U;
+
+        if (s_connect_requested &&
+            s_snapshot.configured &&
+            s_snapshot.retry_count < WIFI_CONNECT_MAX_RETRIES) {
+            s_snapshot.retry_count++;
+            s_snapshot.connecting = true;
+            retry = true;
+        } else if (s_connect_requested) {
+            s_snapshot.last_error = ESP_FAIL;
+        }
+
+        state_unlock();
+    }
+
+    if (retry) {
+        const esp_err_t result = esp_wifi_connect();
+        if (result != ESP_OK) {
+            set_last_error(result);
+        }
+    }
+}
+
+static void ip_event_handler(
+    void *arg,
+    esp_event_base_t event_base,
+    int32_t event_id,
+    void *event_data)
+{
+    (void)arg;
+    (void)event_base;
+
+    if (event_id != IP_EVENT_STA_GOT_IP || event_data == NULL) {
+        return;
+    }
+
+    const ip_event_got_ip_t *event = event_data;
+    wifi_ap_record_t ap_info = {0};
+    const esp_err_t ap_result = esp_wifi_sta_get_ap_info(&ap_info);
+
+    if (!state_lock()) {
+        return;
+    }
+
+    s_snapshot.connected = true;
+    s_snapshot.connecting = false;
+    s_snapshot.configured = true;
+    s_snapshot.retry_count = 0U;
+    s_snapshot.last_disconnect_reason = 0U;
+    s_snapshot.last_error = ESP_OK;
+    s_snapshot.rssi = ap_result == ESP_OK ? ap_info.rssi : 0;
+
+    snprintf(
+        s_snapshot.ip_address,
+        sizeof(s_snapshot.ip_address),
+        IPSTR,
+        IP2STR(&event->ip_info.ip)
+    );
+
+    state_unlock();
+
+    ESP_LOGI(TAG, "Wi-Fi connected, IP=" IPSTR, IP2STR(&event->ip_info.ip));
+}
+
 esp_err_t wifi_service_start(void)
 {
     if (s_snapshot.started) {
@@ -195,6 +291,30 @@ esp_err_t wifi_service_start(void)
 
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     result = esp_wifi_init(&config);
+    if (result != ESP_OK) {
+        set_last_error(result);
+        return result;
+    }
+
+    result = esp_event_handler_instance_register(
+        WIFI_EVENT,
+        ESP_EVENT_ANY_ID,
+        wifi_event_handler,
+        NULL,
+        &s_wifi_event_instance
+    );
+    if (result != ESP_OK) {
+        set_last_error(result);
+        return result;
+    }
+
+    result = esp_event_handler_instance_register(
+        IP_EVENT,
+        IP_EVENT_STA_GOT_IP,
+        ip_event_handler,
+        NULL,
+        &s_ip_event_instance
+    );
     if (result != ESP_OK) {
         set_last_error(result);
         return result;
@@ -253,7 +373,7 @@ esp_err_t wifi_service_start(void)
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
-    return wifi_service_request_scan();
+    return ESP_OK;
 }
 
 esp_err_t wifi_service_request_scan(void)
@@ -273,6 +393,110 @@ esp_err_t wifi_service_request_scan(void)
 
     xTaskNotifyGive(s_scan_task);
     return ESP_OK;
+}
+
+esp_err_t wifi_service_connect(const char *ssid, const char *password)
+{
+    if (!s_snapshot.started || !s_snapshot.radio_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (ssid == NULL || password == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t ssid_length = strnlen(ssid, WIFI_SERVICE_SSID_MAX_LEN + 1U);
+    const size_t password_length = strnlen(
+        password,
+        WIFI_SERVICE_PASSWORD_MAX_LEN + 1U
+    );
+
+    if (ssid_length == 0U ||
+        ssid_length > WIFI_SERVICE_SSID_MAX_LEN ||
+        password_length > WIFI_SERVICE_PASSWORD_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_config_t config = {0};
+    memcpy(config.sta.ssid, ssid, ssid_length);
+    memcpy(config.sta.password, password, password_length);
+    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    config.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    config.sta.pmf_cfg.capable = true;
+    config.sta.pmf_cfg.required = false;
+
+    s_connect_requested = false;
+    (void)esp_wifi_scan_stop();
+    (void)esp_wifi_disconnect();
+
+    esp_err_t result = esp_wifi_set_config(WIFI_IF_STA, &config);
+    if (result != ESP_OK) {
+        set_last_error(result);
+        return result;
+    }
+
+    if (state_lock()) {
+        s_snapshot.configured = true;
+        s_snapshot.connecting = true;
+        s_snapshot.connected = false;
+        s_snapshot.retry_count = 0U;
+        s_snapshot.last_disconnect_reason = 0U;
+        s_snapshot.last_error = ESP_OK;
+        s_snapshot.rssi = 0;
+        strncpy(s_snapshot.ssid, ssid, sizeof(s_snapshot.ssid) - 1U);
+        s_snapshot.ssid[sizeof(s_snapshot.ssid) - 1U] = '\0';
+        strncpy(
+            s_snapshot.ip_address,
+            "0.0.0.0",
+            sizeof(s_snapshot.ip_address) - 1U
+        );
+        s_snapshot.ip_address[sizeof(s_snapshot.ip_address) - 1U] = '\0';
+        state_unlock();
+    }
+
+    s_connect_requested = true;
+    result = esp_wifi_connect();
+    if (result != ESP_OK) {
+        if (state_lock()) {
+            s_snapshot.connecting = false;
+            s_snapshot.last_error = result;
+            state_unlock();
+        }
+        return result;
+    }
+
+    ESP_LOGI(TAG, "Connecting to Wi-Fi SSID '%s'", ssid);
+    return ESP_OK;
+}
+
+esp_err_t wifi_service_disconnect(void)
+{
+    if (!s_snapshot.started) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_connect_requested = false;
+    const esp_err_t result = esp_wifi_disconnect();
+
+    if (state_lock()) {
+        s_snapshot.configured = false;
+        s_snapshot.connecting = false;
+        s_snapshot.connected = false;
+        s_snapshot.retry_count = 0U;
+        s_snapshot.rssi = 0;
+        s_snapshot.ssid[0] = '\0';
+        strncpy(
+            s_snapshot.ip_address,
+            "0.0.0.0",
+            sizeof(s_snapshot.ip_address) - 1U
+        );
+        s_snapshot.ip_address[sizeof(s_snapshot.ip_address) - 1U] = '\0';
+        s_snapshot.last_error = result == ESP_ERR_WIFI_NOT_CONNECT ? ESP_OK : result;
+        state_unlock();
+    }
+
+    return result == ESP_ERR_WIFI_NOT_CONNECT ? ESP_OK : result;
 }
 
 void wifi_service_get_snapshot(wifi_service_snapshot_t *snapshot)
