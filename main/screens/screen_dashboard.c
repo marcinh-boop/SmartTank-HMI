@@ -5,6 +5,7 @@
 
 #include "app_model.h"
 #include "measurement_history.h"
+#include "screen_tank_calibration.h"
 #include "screen_tank_detail.h"
 #include "theme.h"
 #include "lvgl.h"
@@ -26,6 +27,7 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_dashboard_content = NULL;
 static lv_obj_t *s_history_content = NULL;
 static lv_obj_t *s_tank_detail_content = NULL;
+static lv_obj_t *s_tank_calibration_content = NULL;
 static lv_obj_t *s_page_label = NULL;
 static lv_obj_t *s_source_label = NULL;
 static bottom_nav_t *s_nav = NULL;
@@ -39,8 +41,10 @@ static weather_widget_t s_weather_widget;
 static history_chart_view_t s_tank_history;
 static history_chart_view_t s_well_history;
 
+static void refresh_dashboard_from_model(bool force);
 static void show_page(bottom_nav_page_t page);
 static void show_tank_detail(void);
+static void show_tank_calibration(void);
 
 static lv_obj_t *create_bar(lv_obj_t *screen, lv_align_t align, int y)
 {
@@ -174,6 +178,23 @@ static void tank_detail_back_cb(void)
 {
     show_page(NAV_DASHBOARD);
     bottom_nav_set_active(s_nav, NAV_DASHBOARD);
+}
+
+static void tank_detail_calibration_cb(void)
+{
+    show_tank_calibration();
+}
+
+static void tank_calibration_back_cb(void)
+{
+    show_tank_detail();
+}
+
+static void tank_calibration_save_cb(const tank_channel_config_t *config)
+{
+    app_model_update_tank_config(config);
+    refresh_dashboard_from_model(true);
+    show_tank_detail();
 }
 
 static void build_dashboard_content(void)
@@ -326,7 +347,9 @@ static void refresh_dashboard_from_model(bool force)
             &s_tank_widget,
             state.tank.level_percent,
             state.tank.volume_m3,
-            state.tank.capacity_m3
+            state.tank.capacity_m3,
+            state.tank_config.warning_percent,
+            state.tank_config.critical_percent
         );
 
         well_widget_set_data(
@@ -345,6 +368,7 @@ static void refresh_dashboard_from_model(bool force)
         );
 
         screen_tank_detail_update(&state);
+        screen_tank_calibration_update_live(&state);
 
         if (state.system.simulation_active) {
             lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
@@ -368,14 +392,30 @@ static void show_tank_detail(void)
 {
     lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_tank_calibration_content, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_tank_detail_content, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(s_page_label, "SZAMBO");
+    bottom_nav_set_active(s_nav, NAV_DASHBOARD);
+}
+
+static void show_tank_calibration(void)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    screen_tank_calibration_begin(&state);
+
+    lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_tank_detail_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_tank_calibration_content, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_page_label, "KALIBRACJA");
     bottom_nav_set_active(s_nav, NAV_DASHBOARD);
 }
 
 static void show_page(bottom_nav_page_t page)
 {
     lv_obj_add_flag(s_tank_detail_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_tank_calibration_content, LV_OBJ_FLAG_HIDDEN);
 
     if (page == NAV_HISTORY) {
         lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
@@ -412,7 +452,16 @@ static void build_screen(void)
 
     build_dashboard_content();
     build_history_content();
-    s_tank_detail_content = screen_tank_detail_create(s_screen, tank_detail_back_cb);
+    s_tank_detail_content = screen_tank_detail_create(
+        s_screen,
+        tank_detail_back_cb,
+        tank_detail_calibration_cb
+    );
+    s_tank_calibration_content = screen_tank_calibration_create(
+        s_screen,
+        tank_calibration_back_cb,
+        tank_calibration_save_cb
+    );
 
     lv_obj_t *bottom = create_bar(s_screen, LV_ALIGN_BOTTOM_MID, -8);
     s_nav = bottom_nav_create(bottom, NAV_DASHBOARD, nav_change);
