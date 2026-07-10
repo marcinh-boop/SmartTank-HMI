@@ -37,7 +37,9 @@
 #define EXAMPLE_LCD_BIT_PER_PIXEL       (16)
 #define EXAMPLE_RGB_BIT_PER_PIXEL       (16)
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
-#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT)
+/* The Waveshare double-framebuffer example does not use a bounce buffer.
+ * Enabling both caused continuous RGB copy interrupts and starved CPU0. */
+#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (0)
 #define EXAMPLE_LCD_IO_RGB_DISP         (-1)
 #define EXAMPLE_LCD_IO_RGB_VSYNC        (GPIO_NUM_3)
 #define EXAMPLE_LCD_IO_RGB_HSYNC        (GPIO_NUM_46)
