@@ -95,7 +95,8 @@ static lv_disp_t *display_init(esp_lcd_panel_handle_t panel)
     disp_drv.full_refresh = 0;
     disp_drv.direct_mode = 0;
 
-    ESP_LOGI(TAG, "LVGL draw buffer: %u lines in internal RAM", LVGL_PORT_BUFFER_HEIGHT);
+    ESP_LOGI(TAG, "LVGL draw buffer: %u lines in internal RAM",
+             (unsigned)LVGL_PORT_BUFFER_HEIGHT);
     return lv_disp_drv_register(&disp_drv);
 }
 
