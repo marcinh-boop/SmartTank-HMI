@@ -5,6 +5,7 @@
 #include "theme.h"
 
 #define DETAIL_GREEN       lv_color_hex(0x39D12F)
+#define DETAIL_BLUE        lv_color_hex(0x2EA8FF)
 #define DETAIL_YELLOW      lv_color_hex(0xFFC247)
 #define DETAIL_RED         lv_color_hex(0xFF3333)
 #define DETAIL_PANEL       lv_color_hex(0x0B1825)
@@ -25,9 +26,11 @@ static lv_obj_t *s_input_value;
 static lv_obj_t *s_channel_value;
 static lv_obj_t *s_empty_value;
 static lv_obj_t *s_full_value;
+static lv_obj_t *s_capacity_value;
 static lv_obj_t *s_warning_value;
 static lv_obj_t *s_critical_value;
 static screen_tank_detail_back_cb_t s_back_cb;
+static screen_tank_detail_calibration_cb_t s_calibration_cb;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -60,6 +63,24 @@ static lv_obj_t *create_panel(lv_obj_t *parent, int x, int width)
     return panel;
 }
 
+static lv_obj_t *create_button(
+    lv_obj_t *parent,
+    const char *text,
+    int width,
+    int height)
+{
+    lv_obj_t *button = lv_btn_create(parent);
+    lv_obj_set_size(button, width, height);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x12314A), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x1A4566), LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_radius(button, 7, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(button, DETAIL_BLUE, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    create_label(button, text, ST_COLOR_TEXT, LV_ALIGN_CENTER, 0, 0);
+    return button;
+}
+
 static lv_obj_t *create_value_row(
     lv_obj_t *parent,
     const char *name,
@@ -78,7 +99,7 @@ static lv_obj_t *create_value_row(
 
     lv_obj_t *line = lv_obj_create(parent);
     lv_obj_set_size(line, lv_pct(100), 1);
-    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, y + 24);
+    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, y + 22);
     lv_obj_clear_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(line, DETAIL_ROW_BORDER, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, LV_PART_MAIN);
@@ -94,6 +115,15 @@ static void back_button_event_cb(lv_event_t *event)
 
     if (s_back_cb != NULL) {
         s_back_cb();
+    }
+}
+
+static void calibration_button_event_cb(lv_event_t *event)
+{
+    (void)event;
+
+    if (s_calibration_cb != NULL) {
+        s_calibration_cb();
     }
 }
 
@@ -137,9 +167,11 @@ static lv_color_t health_color(sensor_health_t health, bool valid)
 
 lv_obj_t *screen_tank_detail_create(
     lv_obj_t *parent,
-    screen_tank_detail_back_cb_t back_cb)
+    screen_tank_detail_back_cb_t back_cb,
+    screen_tank_detail_calibration_cb_t calibration_cb)
 {
     s_back_cb = back_cb;
+    s_calibration_cb = calibration_cb;
 
     s_root = lv_obj_create(parent);
     lv_obj_remove_style_all(s_root);
@@ -147,32 +179,28 @@ lv_obj_t *screen_tank_detail_create(
     lv_obj_align(s_root, LV_ALIGN_TOP_MID, 0, 58);
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *back_button = lv_btn_create(s_root);
-    lv_obj_set_size(back_button, 105, 34);
+    lv_obj_t *back_button = create_button(s_root, "< WSTECZ", 105, 34);
     lv_obj_align(back_button, LV_ALIGN_TOP_LEFT, 20, 5);
-    lv_obj_set_style_bg_color(back_button, lv_color_hex(0x12314A), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(back_button, lv_color_hex(0x1A4566), LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(back_button, 7, LV_PART_MAIN);
-    lv_obj_set_style_border_width(back_button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(back_button, lv_color_hex(0x2EA8FF), LV_PART_MAIN);
     lv_obj_add_event_cb(back_button, back_button_event_cb, LV_EVENT_RELEASED, NULL);
-    create_label(back_button, "< WSTECZ", ST_COLOR_TEXT, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t *calibration_button = lv_btn_create(s_root);
-    lv_obj_set_size(calibration_button, 245, 34);
-    lv_obj_align(calibration_button, LV_ALIGN_TOP_RIGHT, -20, 5);
-    lv_obj_set_style_bg_color(calibration_button, lv_color_hex(0x17212A), LV_PART_MAIN);
-    lv_obj_set_style_radius(calibration_button, 7, LV_PART_MAIN);
-    lv_obj_set_style_border_width(calibration_button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(calibration_button, DETAIL_BORDER, LV_PART_MAIN);
-    lv_obj_add_state(calibration_button, LV_STATE_DISABLED);
-    create_label(
+    lv_obj_t *calibration_button = create_button(s_root, "KALIBRACJA", 135, 34);
+    lv_obj_align(calibration_button, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_bg_color(calibration_button, lv_color_hex(0x514014), LV_PART_MAIN);
+    lv_obj_set_style_border_color(calibration_button, DETAIL_YELLOW, LV_PART_MAIN);
+    lv_obj_add_event_cb(
         calibration_button,
-        "KALIBRACJA - NASTEPNY ETAP",
+        calibration_button_event_cb,
+        LV_EVENT_RELEASED,
+        NULL
+    );
+
+    create_label(
+        s_root,
+        "mic+130 / wejscie analogowe / diagnostyka",
         ST_COLOR_TEXT_DIM,
-        LV_ALIGN_CENTER,
-        0,
-        0
+        LV_ALIGN_TOP_RIGHT,
+        -20,
+        14
     );
 
     lv_obj_t *state_panel = create_panel(s_root, 20, 245);
@@ -217,14 +245,14 @@ lv_obj_t *screen_tank_detail_create(
     );
 
     lv_obj_t *measurement_panel = create_panel(s_root, 278, 245);
-    create_label(measurement_panel, "POMIAR", lv_color_hex(0x2EA8FF), LV_ALIGN_TOP_LEFT, 0, 0);
+    create_label(measurement_panel, "POMIAR", DETAIL_BLUE, LV_ALIGN_TOP_LEFT, 0, 0);
     s_distance_value = create_value_row(measurement_panel, "Odleglosc", "-- mm", 38);
     s_current_value = create_value_row(measurement_panel, "Prad petli", "-- mA", 83);
     s_sample_value = create_value_row(measurement_panel, "Probka", "--", 128);
     s_source_value = create_value_row(measurement_panel, "Zrodlo", "--", 173);
     create_label(
         measurement_panel,
-        "Dane surowe beda z Modbus RTU.",
+        "Surowe dane beda odczytywane z Modbus RTU.",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_BOTTOM_LEFT,
         0,
@@ -233,13 +261,14 @@ lv_obj_t *screen_tank_detail_create(
 
     lv_obj_t *config_panel = create_panel(s_root, 536, 244);
     create_label(config_panel, "CZUJNIK I KALIBRACJA", DETAIL_YELLOW, LV_ALIGN_TOP_LEFT, 0, 0);
-    s_sensor_value = create_value_row(config_panel, "Model", "--", 32);
-    s_input_value = create_value_row(config_panel, "Wejscie", "--", 65);
-    s_channel_value = create_value_row(config_panel, "Kanal", "--", 98);
-    s_empty_value = create_value_row(config_panel, "PUSTE", "-- mm", 131);
-    s_full_value = create_value_row(config_panel, "PELNE", "-- mm", 164);
-    s_warning_value = create_value_row(config_panel, "Ostrzezenie", "--%", 197);
-    s_critical_value = create_value_row(config_panel, "Alarm", "--%", 230);
+    s_sensor_value = create_value_row(config_panel, "Model", "--", 28);
+    s_input_value = create_value_row(config_panel, "Wejscie", "--", 54);
+    s_channel_value = create_value_row(config_panel, "Kanal", "--", 80);
+    s_empty_value = create_value_row(config_panel, "PUSTE", "-- mm", 106);
+    s_full_value = create_value_row(config_panel, "PELNE", "-- mm", 132);
+    s_capacity_value = create_value_row(config_panel, "Pojemnosc", "-- m3", 158);
+    s_warning_value = create_value_row(config_panel, "Ostrzezenie", "--%", 184);
+    s_critical_value = create_value_row(config_panel, "Alarm", "--%", 210);
 
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     return s_root;
@@ -302,6 +331,9 @@ void screen_tank_detail_update(const smarttank_state_t *state)
 
     snprintf(buffer, sizeof(buffer), "%.0f mm", state->tank_config.distance_full_mm);
     lv_label_set_text(s_full_value, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.2f m3", state->tank_config.capacity_m3);
+    lv_label_set_text(s_capacity_value, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d%%", state->tank_config.warning_percent);
     lv_label_set_text(s_warning_value, buffer);
