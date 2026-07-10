@@ -1,5 +1,6 @@
 #include "bottom_nav.h"
 #include "screen_service.h"
+#include "screen_settings.h"
 #include "theme.h"
 
 #include <string.h>
@@ -73,7 +74,15 @@ static void nav_button_event_cb(lv_event_t *event)
         return;
     }
 
+    if (page == NAV_SETTINGS) {
+        screen_service_hide();
+        screen_settings_open(lv_scr_act());
+        bottom_nav_set_active(nav, page);
+        return;
+    }
+
     if (page == NAV_SERVICE) {
+        screen_settings_hide();
         screen_service_open(lv_scr_act());
         bottom_nav_set_active(nav, page);
         return;
@@ -84,6 +93,7 @@ static void nav_button_event_cb(lv_event_t *event)
     }
 
     screen_service_hide();
+    screen_settings_hide();
     bottom_nav_set_active(nav, page);
 }
 
