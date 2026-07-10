@@ -26,7 +26,7 @@ tank_widget_t tank_widget_create(lv_obj_t *parent)
         0
     );
 
-    widget_label_create(
+    widget.capacity_label = widget_label_create(
         parent,
         "Pojemnosc: 10.50 m3",
         ST_COLOR_TEXT_DIM,
@@ -182,7 +182,9 @@ void tank_widget_set_data(
     tank_widget_t *widget,
     int percent,
     float volume_m3,
-    float capacity_m3)
+    float capacity_m3,
+    int warning_percent,
+    int critical_percent)
 {
     if (widget == NULL) {
         return;
@@ -199,21 +201,31 @@ void tank_widget_set_data(
     lv_color_t status_color = TANK_GREEN;
     const char *status_text = "Poziom OK";
 
-    if (percent >= 90) {
+    if (percent >= critical_percent) {
         status_color = TANK_RED;
         status_text = "ALARM";
-    } else if (percent >= 80) {
+    } else if (percent >= warning_percent) {
         status_color = TANK_YELLOW;
         status_text = "Ostrzezenie";
     }
 
     char buffer[48];
 
+    snprintf(buffer, sizeof(buffer), "Pojemnosc: %.2f m3", capacity_m3);
+    lv_label_set_text(widget->capacity_label, buffer);
+
     snprintf(buffer, sizeof(buffer), "%d%%", percent);
     lv_label_set_text(widget->percent_label, buffer);
 
     snprintf(buffer, sizeof(buffer), "%.2f m3", volume_m3);
     lv_label_set_text(widget->volume_label, buffer);
+
+    float reserve_m3 = capacity_m3 - volume_m3;
+    if (reserve_m3 < 0.0f) {
+        reserve_m3 = 0.0f;
+    }
+    snprintf(buffer, sizeof(buffer), "%.2f m3", reserve_m3);
+    lv_label_set_text(widget->info_80_value, buffer);
 
     lv_arc_set_value(widget->arc, percent);
     lv_bar_set_value(widget->vertical_bar, percent, LV_ANIM_ON);
@@ -237,6 +249,4 @@ void tank_widget_set_data(
         status_color,
         LV_PART_MAIN
     );
-
-    (void)capacity_m3;
 }
