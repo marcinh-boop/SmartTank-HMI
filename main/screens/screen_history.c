@@ -6,14 +6,21 @@
 
 static lv_obj_t *s_history_screen = NULL;
 
+static void load_dashboard_async(void *user_data)
+{
+    (void)user_data;
+    screen_dashboard_create();
+}
+
 static bool history_nav_change(bottom_nav_page_t page)
 {
     if (page == NAV_DASHBOARD) {
-        screen_dashboard_create();
-        return true;
+        /* Przelaczenie nastapi po zakonczeniu obslugi dotyku. */
+        lv_async_call(load_dashboard_async, NULL);
     }
 
-    return page == NAV_HISTORY;
+    /* Aktywna zakladka jest ustawiona w pasku docelowego ekranu. */
+    return false;
 }
 
 static lv_obj_t *create_panel(lv_obj_t *parent, int x, int width)
