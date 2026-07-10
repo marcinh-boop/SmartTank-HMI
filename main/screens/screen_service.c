@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "app_model.h"
+#include "clock_service.h"
 #include "modbus_rtu_client.h"
 #include "rs485_port.h"
 #include "theme.h"
@@ -29,6 +30,9 @@ static lv_obj_t *s_last_error_value;
 static lv_obj_t *s_source_value;
 static lv_obj_t *s_uptime_value;
 static lv_obj_t *s_module_value;
+static lv_obj_t *s_rtc_status_value;
+static lv_obj_t *s_rtc_time_value;
+static lv_obj_t *s_wifi_value;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -94,6 +98,52 @@ static void set_u32(lv_obj_t *label, uint32_t value)
     char buffer[24];
     snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)value);
     lv_label_set_text(label, buffer);
+}
+
+static void refresh_rtc_status(void)
+{
+    clock_service_snapshot_t clock;
+    clock_service_get_snapshot(&clock);
+
+    if (!clock.started) {
+        lv_label_set_text(s_rtc_status_value, "START");
+        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_YELLOW, LV_PART_MAIN);
+        lv_label_set_text(s_rtc_time_value, "--");
+        return;
+    }
+
+    if (!clock.rtc_present) {
+        lv_label_set_text(s_rtc_status_value, "BLAD I2C");
+        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_RED, LV_PART_MAIN);
+        lv_label_set_text(s_rtc_time_value, "--");
+        return;
+    }
+
+    if (!clock.time_valid) {
+        lv_label_set_text(
+            s_rtc_status_value,
+            clock.oscillator_stopped ? "CZAS NIEWAZNY" : "DO USTAWIENIA"
+        );
+        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_YELLOW, LV_PART_MAIN);
+        lv_label_set_text(s_rtc_time_value, "--");
+        return;
+    }
+
+    lv_label_set_text(s_rtc_status_value, "OK");
+    lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_GREEN, LV_PART_MAIN);
+
+    char buffer[32];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%02u.%02u.%04u %02u:%02u",
+        (unsigned int)clock.datetime.day,
+        (unsigned int)clock.datetime.month,
+        (unsigned int)clock.datetime.year,
+        (unsigned int)clock.datetime.hour,
+        (unsigned int)clock.datetime.minute
+    );
+    lv_label_set_text(s_rtc_time_value, buffer);
 }
 
 static void refresh_service(void)
@@ -167,6 +217,11 @@ static void refresh_service(void)
         s_module_value,
         state.system.analog_module_connected ? "ONLINE" : "NIEPODLACZONY"
     );
+
+    refresh_rtc_status();
+
+    lv_label_set_text(s_wifi_value, "NIEURUCHOMIONE");
+    lv_obj_set_style_text_color(s_wifi_value, SERVICE_YELLOW, LV_PART_MAIN);
 }
 
 static void refresh_timer_cb(lv_timer_t *timer)
@@ -217,7 +272,7 @@ static void build_screen(lv_obj_t *parent_screen)
     );
     create_label(
         top,
-        "RS485 / MODBUS",
+        "RS485 / RTC / WIFI",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_RIGHT_MID,
         -12,
@@ -277,20 +332,11 @@ static void build_screen(lv_obj_t *parent_screen)
     s_source_value = create_value_row(status_panel, "Zrodlo danych", "--", 34);
     s_uptime_value = create_value_row(status_panel, "Uptime [s]", "0", 66);
     s_module_value = create_value_row(status_panel, "Modul 8CH", "--", 98);
-    create_value_row(status_panel, "Adres slave", "DO USTALENIA", 130);
-    create_value_row(status_panel, "Mapa rejestrow", "BRAK", 162);
-
-    lv_obj_t *note = create_label(
-        status_panel,
-        "Warstwa komunikacyjna jest wgrana. Port pozostaje nieaktywny do czasu potwierdzenia baud rate, adresu slave i mapy rejestrow modulu.",
-        ST_COLOR_TEXT_DIM,
-        LV_ALIGN_BOTTOM_LEFT,
-        0,
-        -4,
-        &lv_font_montserrat_12
-    );
-    lv_obj_set_width(note, 215);
-    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    s_rtc_status_value = create_value_row(status_panel, "RTC PCF85063", "--", 130);
+    s_rtc_time_value = create_value_row(status_panel, "Czas RTC", "--", 162);
+    s_wifi_value = create_value_row(status_panel, "Wi-Fi", "--", 194);
+    create_value_row(status_panel, "Adres slave", "DO USTALENIA", 226);
+    create_value_row(status_panel, "Mapa rejestrow", "BRAK", 258);
 
     s_refresh_timer = lv_timer_create(refresh_timer_cb, 500, NULL);
     refresh_service();
