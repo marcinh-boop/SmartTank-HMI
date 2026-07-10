@@ -1,9 +1,10 @@
 /*
  * SmartTank HMI LVGL port for the Waveshare ESP32-S3 RGB display.
  *
- * Two panel-owned frame buffers are used directly by LVGL. A rendered buffer
- * is not released back to LVGL until the RGB peripheral reaches VSYNC. This
- * prevents LVGL from modifying a buffer while the panel is still scanning it.
+ * LVGL renders only changed areas into a small internal-RAM draw buffer. The
+ * RGB driver then copies those areas into its single PSRAM frame buffer. The
+ * panel scans through internal bounce buffers, so short PSRAM bandwidth spikes
+ * caused by touch-triggered redraws cannot shift the RGB scanout.
  */
 
 #include <assert.h>
@@ -13,8 +14,8 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_check.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_touch.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -23,7 +24,6 @@
 
 static const char *TAG = "lv_port";
 static SemaphoreHandle_t s_lvgl_mutex;
-static SemaphoreHandle_t s_vsync_sem;
 static TaskHandle_t s_lvgl_task;
 
 static void tick_cb(void *arg)
@@ -59,21 +59,11 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "RGB draw failed: %s", esp_err_to_name(err));
-        lv_disp_flush_ready(drv);
-        return;
     }
 
-    /* Espressif's LVGL 8 RGB port waits for the next VSYNC before returning
-     * a full frame buffer to LVGL. Drain an old event first, then wait for a
-     * fresh frame boundary. The timeout prevents a driver fault from locking
-     * the whole GUI task forever. */
-    if (lv_disp_flush_is_last(drv)) {
-        (void)xSemaphoreTake(s_vsync_sem, 0);
-        if (xSemaphoreTake(s_vsync_sem, pdMS_TO_TICKS(100)) != pdTRUE) {
-            ESP_LOGE(TAG, "VSYNC timeout while switching RGB frame buffer");
-        }
-    }
-
+    /* In single-frame-buffer RGB mode draw_bitmap copies the changed area into
+     * the panel-owned frame buffer before returning. The LVGL draw buffer can
+     * therefore be reused immediately. */
     lv_disp_flush_ready(drv);
 }
 
@@ -82,12 +72,19 @@ static lv_disp_t *display_init(esp_lcd_panel_handle_t panel)
     static lv_disp_draw_buf_t draw_buf;
     static lv_disp_drv_t disp_drv;
 
-    void *fb0 = NULL;
-    void *fb1 = NULL;
-    ESP_ERROR_CHECK(esp_lcd_rgb_panel_get_frame_buffer(panel, 2, &fb0, &fb1));
+    const size_t pixel_count = LVGL_PORT_H_RES * LVGL_PORT_BUFFER_HEIGHT;
+    lv_color_t *buffer = heap_caps_malloc(
+        pixel_count * sizeof(lv_color_t),
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT
+    );
 
-    const uint32_t pixel_count = LVGL_PORT_H_RES * LVGL_PORT_V_RES;
-    lv_disp_draw_buf_init(&draw_buf, fb0, fb1, pixel_count);
+    if (!buffer) {
+        ESP_LOGE(TAG, "Failed to allocate %u-byte internal LVGL buffer",
+                 (unsigned)(pixel_count * sizeof(lv_color_t)));
+        return NULL;
+    }
+
+    lv_disp_draw_buf_init(&draw_buf, buffer, NULL, pixel_count);
 
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = LVGL_PORT_H_RES;
@@ -95,8 +92,10 @@ static lv_disp_t *display_init(esp_lcd_panel_handle_t panel)
     disp_drv.flush_cb = flush_cb;
     disp_drv.draw_buf = &draw_buf;
     disp_drv.user_data = panel;
-    disp_drv.full_refresh = 1;
+    disp_drv.full_refresh = 0;
+    disp_drv.direct_mode = 0;
 
+    ESP_LOGI(TAG, "LVGL draw buffer: %u lines in internal RAM", LVGL_PORT_BUFFER_HEIGHT);
     return lv_disp_drv_register(&disp_drv);
 }
 
@@ -158,20 +157,9 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
 {
     assert(lcd_handle);
 
-    /* The panel's VSYNC callback is registered before this function is called.
-     * Creating the semaphore before the LVGL task starts guarantees that the
-     * first display flush already has a working completion signal. */
-    s_vsync_sem = xSemaphoreCreateCounting(1, 0);
-    if (!s_vsync_sem) {
-        ESP_LOGE(TAG, "VSYNC semaphore allocation failed");
-        return ESP_ERR_NO_MEM;
-    }
-
     s_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
     if (!s_lvgl_mutex) {
         ESP_LOGE(TAG, "LVGL mutex allocation failed");
-        vSemaphoreDelete(s_vsync_sem);
-        s_vsync_sem = NULL;
         return ESP_ERR_NO_MEM;
     }
 
@@ -179,7 +167,9 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
     ESP_RETURN_ON_ERROR(tick_init(), TAG, "LVGL tick init failed");
 
     lv_disp_t *display = display_init(lcd_handle);
-    assert(display);
+    if (!display) {
+        return ESP_ERR_NO_MEM;
+    }
 
     if (tp_handle) {
         lv_indev_t *input = touch_init(tp_handle);
@@ -202,7 +192,7 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "LVGL ready: two full frame buffers, VSYNC synchronized");
+    ESP_LOGI(TAG, "LVGL ready: partial refresh, internal draw buffer");
     return ESP_OK;
 }
 
@@ -221,11 +211,5 @@ void lvgl_port_unlock(void)
 
 bool lvgl_port_notify_rgb_vsync(void)
 {
-    if (!s_vsync_sem) {
-        return false;
-    }
-
-    BaseType_t need_yield = pdFALSE;
-    (void)xSemaphoreGiveFromISR(s_vsync_sem, &need_yield);
-    return need_yield == pdTRUE;
+    return false;
 }
