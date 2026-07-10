@@ -12,6 +12,7 @@
 #include "settings_storage.h"
 #include "wifi_service.h"
 #include "lvgl_port.h"
+#include "panel_icons.h"
 #include "screen_dashboard.h"
 
 static const char *TAG = "app";
@@ -89,6 +90,7 @@ void app_start(void)
 
     if (lvgl_port_lock(-1)) {
         screen_dashboard_create();
+        panel_icons_apply(lv_scr_act());
         lvgl_port_unlock();
     }
 }
