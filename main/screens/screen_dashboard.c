@@ -10,14 +10,27 @@
 
 static lv_obj_t *s_dashboard_screen = NULL;
 
+static void load_history_async(void *user_data)
+{
+    (void)user_data;
+    screen_history_create();
+}
+
 static bool dashboard_nav_change(bottom_nav_page_t page)
 {
     if (page == NAV_HISTORY) {
-        screen_history_create();
-        return true;
+        /*
+         * Zmieniamy ekran dopiero po zakonczeniu obslugi dotyku.
+         * Zapobiega to przeniesieniu zdarzenia RELEASED na nowy ekran.
+         */
+        lv_async_call(load_history_async, NULL);
     }
 
-    return page == NAV_DASHBOARD;
+    /*
+     * Nie zmieniamy stanu starego paska. Nowy ekran ma juz poprawnie
+     * ustawiona aktywna zakladke.
+     */
+    return false;
 }
 
 static lv_obj_t *create_card(lv_obj_t *parent, lv_color_t color)
