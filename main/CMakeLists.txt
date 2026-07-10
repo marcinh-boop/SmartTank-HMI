@@ -7,12 +7,14 @@ idf_component_register(
         "app/app.c"
 
         "drivers/rs485_port.c"
+        "drivers/rtc_pcf85063.c"
 
         "model/app_model.c"
         "model/measurement_history.c"
 
         "protocol/modbus_rtu_client.c"
 
+        "services/clock_service.c"
         "services/data_simulator.c"
         "services/settings_storage.c"
 
