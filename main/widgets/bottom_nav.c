@@ -20,13 +20,24 @@ static const char *NAV_NAMES[NAV_ITEM_COUNT] = {
     "Informacje"
 };
 
+static const char *NAV_ICONS[NAV_ITEM_COUNT] = {
+    LV_SYMBOL_HOME,
+    LV_SYMBOL_LIST,
+    LV_SYMBOL_BELL,
+    LV_SYMBOL_SETTINGS,
+    LV_SYMBOL_EYE_OPEN,
+    LV_SYMBOL_FILE
+};
+
 static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
 {
     const bool is_active = (page == nav->active_page);
     const lv_color_t bg_color = is_active ? NAV_ACTIVE_BG : NAV_BG;
     const lv_color_t text_color = is_active ? NAV_TEXT_ACTIVE : NAV_TEXT;
+    const lv_color_t icon_color = is_active ? NAV_ACTIVE_BORDER : NAV_TEXT;
 
     lv_obj_t *button = nav->buttons[page];
+    lv_obj_t *icon = nav->icons[page];
     lv_obj_t *label = nav->labels[page];
 
     lv_obj_set_style_bg_color(button, bg_color, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -43,6 +54,7 @@ static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
     lv_obj_set_style_translate_x(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_translate_y(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
 
+    lv_obj_set_style_text_color(icon, icon_color, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, text_color, LV_PART_MAIN);
 }
 
@@ -135,16 +147,23 @@ bottom_nav_t *bottom_nav_create(
         nav->buttons[i] = lv_btn_create(parent);
         lv_obj_remove_style_all(nav->buttons[i]);
 
-        lv_obj_set_size(nav->buttons[i], 118, 38);
+        lv_obj_set_size(nav->buttons[i], 118, 42);
         lv_obj_set_style_radius(nav->buttons[i], 7, LV_PART_MAIN);
         lv_obj_set_style_shadow_width(nav->buttons[i], 0, LV_PART_MAIN);
         lv_obj_set_style_outline_width(nav->buttons[i], 0, LV_PART_MAIN);
         lv_obj_set_style_pad_all(nav->buttons[i], 0, LV_PART_MAIN);
 
+        nav->icons[i] = lv_label_create(nav->buttons[i]);
+        lv_label_set_text(nav->icons[i], NAV_ICONS[i]);
+        lv_obj_set_style_text_font(nav->icons[i], &lv_font_montserrat_20, LV_PART_MAIN);
+        lv_obj_align(nav->icons[i], LV_ALIGN_TOP_MID, 0, -1);
+        lv_obj_clear_flag(nav->icons[i], LV_OBJ_FLAG_CLICKABLE);
+
         nav->labels[i] = lv_label_create(nav->buttons[i]);
         lv_label_set_text(nav->labels[i], NAV_NAMES[i]);
         lv_obj_set_style_text_font(nav->labels[i], &lv_font_montserrat_14, LV_PART_MAIN);
-        lv_obj_center(nav->labels[i]);
+        lv_obj_align(nav->labels[i], LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_clear_flag(nav->labels[i], LV_OBJ_FLAG_CLICKABLE);
 
         nav->contexts[i].nav = nav;
         nav->contexts[i].page = (bottom_nav_page_t)i;
