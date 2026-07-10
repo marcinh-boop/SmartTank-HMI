@@ -1,9 +1,9 @@
 /*
  * SmartTank HMI LVGL port for the Waveshare ESP32-S3 RGB display.
  *
- * Two panel-owned frame buffers are used directly by LVGL. Flushes only
- * request a frame-buffer switch and never block waiting for VSYNC. The RGB
- * peripheral performs the actual scanout continuously.
+ * Two panel-owned frame buffers are used directly by LVGL. A rendered buffer
+ * is not released back to LVGL until the RGB peripheral reaches VSYNC. This
+ * prevents LVGL from modifying a buffer while the panel is still scanning it.
  */
 
 #include <assert.h>
@@ -23,6 +23,7 @@
 
 static const char *TAG = "lv_port";
 static SemaphoreHandle_t s_lvgl_mutex;
+static SemaphoreHandle_t s_vsync_sem;
 static TaskHandle_t s_lvgl_task;
 
 static void tick_cb(void *arg)
@@ -47,7 +48,7 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
 {
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)drv->user_data;
 
-    esp_lcd_panel_draw_bitmap(
+    const esp_err_t err = esp_lcd_panel_draw_bitmap(
         panel,
         area->x1,
         area->y1,
@@ -56,8 +57,23 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
         color_map
     );
 
-    /* Do not wait here. Blocking the LVGL task on VSYNC caused watchdog
-     * starvation and made touch-triggered refreshes visibly jump. */
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "RGB draw failed: %s", esp_err_to_name(err));
+        lv_disp_flush_ready(drv);
+        return;
+    }
+
+    /* Espressif's LVGL 8 RGB port waits for the next VSYNC before returning
+     * a full frame buffer to LVGL. Drain an old event first, then wait for a
+     * fresh frame boundary. The timeout prevents a driver fault from locking
+     * the whole GUI task forever. */
+    if (lv_disp_flush_is_last(drv)) {
+        (void)xSemaphoreTake(s_vsync_sem, 0);
+        if (xSemaphoreTake(s_vsync_sem, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGE(TAG, "VSYNC timeout while switching RGB frame buffer");
+        }
+    }
+
     lv_disp_flush_ready(drv);
 }
 
@@ -142,6 +158,23 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
 {
     assert(lcd_handle);
 
+    /* The panel's VSYNC callback is registered before this function is called.
+     * Creating the semaphore before the LVGL task starts guarantees that the
+     * first display flush already has a working completion signal. */
+    s_vsync_sem = xSemaphoreCreateCounting(1, 0);
+    if (!s_vsync_sem) {
+        ESP_LOGE(TAG, "VSYNC semaphore allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
+    if (!s_lvgl_mutex) {
+        ESP_LOGE(TAG, "LVGL mutex allocation failed");
+        vSemaphoreDelete(s_vsync_sem);
+        s_vsync_sem = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
     lv_init();
     ESP_RETURN_ON_ERROR(tick_init(), TAG, "LVGL tick init failed");
 
@@ -151,12 +184,6 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
     if (tp_handle) {
         lv_indev_t *input = touch_init(tp_handle);
         assert(input);
-    }
-
-    s_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
-    if (!s_lvgl_mutex) {
-        ESP_LOGE(TAG, "LVGL mutex allocation failed");
-        return ESP_ERR_NO_MEM;
     }
 
     const BaseType_t core = LVGL_PORT_TASK_CORE < 0 ? tskNO_AFFINITY : LVGL_PORT_TASK_CORE;
@@ -175,7 +202,7 @@ esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "LVGL ready: two full frame buffers, non-blocking flush");
+    ESP_LOGI(TAG, "LVGL ready: two full frame buffers, VSYNC synchronized");
     return ESP_OK;
 }
 
@@ -194,7 +221,11 @@ void lvgl_port_unlock(void)
 
 bool lvgl_port_notify_rgb_vsync(void)
 {
-    /* Frame switching is handled by the RGB panel driver. No task notification
-     * is required by this non-blocking port. */
-    return false;
+    if (!s_vsync_sem) {
+        return false;
+    }
+
+    BaseType_t need_yield = pdFALSE;
+    (void)xSemaphoreGiveFromISR(s_vsync_sem, &need_yield);
+    return need_yield == pdTRUE;
 }
