@@ -28,18 +28,18 @@
 #define EXAMPLE_LCD_V_RES           (LVGL_PORT_V_RES)
 
 #if ESP_PANEL_USE_1024_600_LCD
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ  (21 * 1000 * 1000)
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ  (16 * 1000 * 1000)
 #else
-/* Value used by the Waveshare 800x480 double-frame-buffer example. */
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ  (18 * 1000 * 1000)
+/* Conservative clock for a PSRAM-backed RGB framebuffer. This removes the
+ * EDMA starvation margin that produced the visible wrapped/shifted frame. */
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ  (12 * 1000 * 1000)
 #endif
 
 #define EXAMPLE_LCD_BIT_PER_PIXEL       (16)
 #define EXAMPLE_RGB_BIT_PER_PIXEL       (16)
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
-/* The Waveshare double-framebuffer example does not use a bounce buffer.
- * Enabling both caused continuous RGB copy interrupts and starved CPU0. */
-#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (0)
+/* Two 20-line bounce buffers are allocated internally by the RGB driver. */
+#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * 20)
 #define EXAMPLE_LCD_IO_RGB_DISP         (-1)
 #define EXAMPLE_LCD_IO_RGB_VSYNC        (GPIO_NUM_3)
 #define EXAMPLE_LCD_IO_RGB_HSYNC        (GPIO_NUM_46)
