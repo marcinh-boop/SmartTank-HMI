@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include "lvgl.h"
 
 typedef enum {
@@ -12,6 +13,8 @@ typedef enum {
     NAV_ITEM_COUNT
 } bottom_nav_page_t;
 
+typedef bool (*bottom_nav_change_cb_t)(bottom_nav_page_t page);
+
 typedef struct {
     lv_obj_t *root;
     lv_obj_t *buttons[NAV_ITEM_COUNT];
@@ -21,7 +24,8 @@ typedef struct {
 
 bottom_nav_t bottom_nav_create(
     lv_obj_t *parent,
-    bottom_nav_page_t active_page
+    bottom_nav_page_t active_page,
+    bottom_nav_change_cb_t change_cb
 );
 
 void bottom_nav_set_active(
