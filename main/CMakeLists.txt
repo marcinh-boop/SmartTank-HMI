@@ -8,6 +8,7 @@ idf_component_register(
 
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
+        "screens/screen_history.c"
 
         "ui/theme.c"
 
