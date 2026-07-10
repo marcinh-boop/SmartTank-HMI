@@ -40,6 +40,22 @@ esp_err_t app_model_init(void)
     s_state.tank.valid = true;
     s_state.tank.health = SENSOR_HEALTH_OK;
 
+    strncpy(
+        s_state.tank_config.sensor_model,
+        "mic+130/IU/TC",
+        sizeof(s_state.tank_config.sensor_model) - 1U
+    );
+    strncpy(
+        s_state.tank_config.input_mode,
+        "4-20 mA",
+        sizeof(s_state.tank_config.input_mode) - 1U
+    );
+    s_state.tank_config.analog_channel = 1U;
+    s_state.tank_config.distance_empty_mm = 1500.0f;
+    s_state.tank_config.distance_full_mm = 250.0f;
+    s_state.tank_config.warning_percent = 80;
+    s_state.tank_config.critical_percent = 90;
+
     s_state.well.water_column_m = 2.81f;
     s_state.well.well_depth_m = 4.00f;
     s_state.well.valid = true;
@@ -49,7 +65,7 @@ esp_err_t app_model_init(void)
     s_state.weather.rain_percent = 10;
     s_state.weather.wind_kmh = 12.0f;
     s_state.weather.humidity_percent = 62;
-    strncpy(s_state.weather.description, "Zachmurzenie", sizeof(s_state.weather.description) - 1);
+    strncpy(s_state.weather.description, "Zachmurzenie", sizeof(s_state.weather.description) - 1U);
     s_state.weather.valid = true;
 
     s_state.system.simulation_active = true;
@@ -86,6 +102,19 @@ void app_model_update_tank(const tank_measurement_t *measurement)
     model_unlock();
 }
 
+void app_model_update_tank_config(const tank_channel_config_t *config)
+{
+    if (config == NULL || !model_lock()) {
+        return;
+    }
+
+    s_state.tank_config = *config;
+    s_state.tank_config.sensor_model[sizeof(s_state.tank_config.sensor_model) - 1U] = '\0';
+    s_state.tank_config.input_mode[sizeof(s_state.tank_config.input_mode) - 1U] = '\0';
+    s_state.revision++;
+    model_unlock();
+}
+
 void app_model_update_well(const well_measurement_t *measurement)
 {
     if (measurement == NULL || !model_lock()) {
@@ -104,7 +133,7 @@ void app_model_update_weather(const weather_measurement_t *measurement)
     }
 
     s_state.weather = *measurement;
-    s_state.weather.description[sizeof(s_state.weather.description) - 1] = '\0';
+    s_state.weather.description[sizeof(s_state.weather.description) - 1U] = '\0';
     s_state.revision++;
     model_unlock();
 }
