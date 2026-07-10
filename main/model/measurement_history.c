@@ -1,9 +1,12 @@
 #include "measurement_history.h"
 
 #include <string.h>
+#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+
+#define HISTORY_MIN_VALID_YEAR 2024
 
 static SemaphoreHandle_t s_history_mutex;
 static measurement_history_sample_t s_samples[MEASUREMENT_HISTORY_CAPACITY];
@@ -20,6 +23,26 @@ static int clamp_percent(int value)
         return 100;
     }
     return value;
+}
+
+static bool capture_timestamp(int64_t *epoch_seconds)
+{
+    if (epoch_seconds == NULL) {
+        return false;
+    }
+
+    time_t now = 0;
+    time(&now);
+
+    struct tm local_time = {0};
+    if (localtime_r(&now, &local_time) == NULL ||
+        local_time.tm_year + 1900 < HISTORY_MIN_VALID_YEAR) {
+        *epoch_seconds = 0;
+        return false;
+    }
+
+    *epoch_seconds = (int64_t)now;
+    return true;
 }
 
 esp_err_t measurement_history_init(void)
@@ -50,13 +73,15 @@ void measurement_history_add(
         return;
     }
 
-    int well_percent = (int)((well_water_column_m / well_depth_m) * 100.0f + 0.5f);
+    const int well_percent =
+        (int)((well_water_column_m / well_depth_m) * 100.0f + 0.5f);
 
     measurement_history_sample_t sample = {
         .uptime_seconds = uptime_seconds,
         .tank_percent = clamp_percent(tank_percent),
         .well_percent = clamp_percent(well_percent),
     };
+    sample.timestamp_valid = capture_timestamp(&sample.epoch_seconds);
 
     if (xSemaphoreTake(s_history_mutex, portMAX_DELAY) != pdTRUE) {
         return;
