@@ -72,6 +72,7 @@ typedef struct {
 esp_err_t app_model_init(void);
 void app_model_get_snapshot(smarttank_state_t *snapshot);
 void app_model_update_tank(const tank_measurement_t *measurement);
+void app_model_restore_tank_config(const tank_channel_config_t *config);
 void app_model_update_tank_config(const tank_channel_config_t *config);
 void app_model_update_well(const well_measurement_t *measurement);
 void app_model_update_weather(const weather_measurement_t *measurement);
