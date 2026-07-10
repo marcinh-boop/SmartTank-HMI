@@ -7,6 +7,7 @@
 #include "modbus_rtu_client.h"
 #include "rs485_port.h"
 #include "theme.h"
+#include "wifi_service.h"
 
 #define SERVICE_BLUE    lv_color_hex(0x2EA8FF)
 #define SERVICE_GREEN   lv_color_hex(0x39D12F)
@@ -146,6 +147,39 @@ static void refresh_rtc_status(void)
     lv_label_set_text(s_rtc_time_value, buffer);
 }
 
+static void refresh_wifi_status(void)
+{
+    wifi_service_snapshot_t wifi;
+    wifi_service_get_snapshot(&wifi);
+
+    if (!wifi.started) {
+        lv_label_set_text(s_wifi_value, "NIEURUCHOMIONE");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_YELLOW, LV_PART_MAIN);
+        return;
+    }
+
+    if (!wifi.radio_ready || wifi.last_error != ESP_OK) {
+        lv_label_set_text(s_wifi_value, "BLAD");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_RED, LV_PART_MAIN);
+        return;
+    }
+
+    if (wifi.scanning) {
+        lv_label_set_text(s_wifi_value, "SKANOWANIE");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_BLUE, LV_PART_MAIN);
+        return;
+    }
+
+    if (wifi.connected) {
+        lv_label_set_text(s_wifi_value, "ONLINE");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
+        return;
+    }
+
+    lv_label_set_text(s_wifi_value, "RADIO OK");
+    lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
+}
+
 static void refresh_service(void)
 {
     if (s_root == NULL) {
@@ -219,9 +253,7 @@ static void refresh_service(void)
     );
 
     refresh_rtc_status();
-
-    lv_label_set_text(s_wifi_value, "NIEURUCHOMIONE");
-    lv_obj_set_style_text_color(s_wifi_value, SERVICE_YELLOW, LV_PART_MAIN);
+    refresh_wifi_status();
 }
 
 static void refresh_timer_cb(lv_timer_t *timer)
