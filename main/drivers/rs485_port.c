@@ -1,7 +1,5 @@
 #include "rs485_port.h"
 
-#include <string.h>
-
 #include "esp_log.h"
 #include "freertos/semphr.h"
 
@@ -57,10 +55,6 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .rx_flow_ctrl_thresh = 0,
         .source_clk = UART_SCLK_DEFAULT,
-        .flags = {
-            .allow_pd = 0,
-            .backup_before_sleep = 0,
-        },
     };
 
     esp_err_t err = uart_driver_install(
