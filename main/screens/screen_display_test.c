@@ -35,7 +35,7 @@ void screen_display_test_create(void)
     lv_obj_t *title = lv_label_create(screen);
     lv_label_set_text(title, "TEST WYSWIETLACZA RGB");
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 
     lv_obj_t *description = lv_label_create(screen);
@@ -59,7 +59,7 @@ void screen_display_test_create(void)
     s_counter_label = lv_label_create(screen);
     lv_label_set_text(s_counter_label, "Dotkniecia: 0");
     lv_obj_set_style_text_color(s_counter_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(s_counter_label, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_counter_label, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_align(s_counter_label, LV_ALIGN_BOTTOM_MID, 0, -54);
 
     lv_obj_add_event_cb(screen, test_touch_cb, LV_EVENT_RELEASED, NULL);
