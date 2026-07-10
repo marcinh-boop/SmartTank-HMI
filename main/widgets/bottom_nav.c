@@ -2,6 +2,7 @@
 #include "theme.h"
 
 #include <stdint.h>
+#include <string.h>
 
 #define NAV_BG             lv_color_hex(0x08131F)
 #define NAV_ACTIVE_BG      lv_color_hex(0x12314A)
@@ -18,43 +19,43 @@ static const char *NAV_NAMES[NAV_ITEM_COUNT] = {
     "Informacje"
 };
 
-static bottom_nav_t *s_nav = NULL;
+static bottom_nav_t s_nav;
 
 static void apply_button_style(
     bottom_nav_t *nav,
     bottom_nav_page_t page)
 {
     const bool is_active = (page == nav->active_page);
+    const lv_color_t bg_color = is_active ? NAV_ACTIVE_BG : NAV_BG;
+    const lv_color_t text_color = is_active ? NAV_TEXT_ACTIVE : NAV_TEXT;
+    const lv_coord_t border_width = is_active ? 1 : 0;
 
-    lv_obj_set_style_bg_color(
-        nav->buttons[page],
-        is_active ? NAV_ACTIVE_BG : NAV_BG,
-        LV_PART_MAIN
-    );
+    lv_obj_t *button = nav->buttons[page];
+    lv_obj_t *label = nav->labels[page];
 
-    lv_obj_set_style_bg_opa(
-        nav->buttons[page],
-        LV_OPA_COVER,
-        LV_PART_MAIN
-    );
+    /*
+     * Ten sam wyglad dla stanu normalnego i nacisnietego.
+     * Usuwa domyslna animacje/transformacje przycisku LVGL,
+     * ktora powodowala chwilowe "skakanie" interfejsu.
+     */
+    lv_obj_set_style_bg_color(button, bg_color, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(button, bg_color, LV_PART_MAIN | LV_STATE_PRESSED);
 
-    lv_obj_set_style_border_width(
-        nav->buttons[page],
-        is_active ? 1 : 0,
-        LV_PART_MAIN
-    );
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_PRESSED);
 
-    lv_obj_set_style_border_color(
-        nav->buttons[page],
-        NAV_ACTIVE_BORDER,
-        LV_PART_MAIN
-    );
+    lv_obj_set_style_border_width(button, border_width, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(button, border_width, LV_PART_MAIN | LV_STATE_PRESSED);
 
-    lv_obj_set_style_text_color(
-        nav->labels[page],
-        is_active ? NAV_TEXT_ACTIVE : NAV_TEXT,
-        LV_PART_MAIN
-    );
+    lv_obj_set_style_border_color(button, NAV_ACTIVE_BORDER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(button, NAV_ACTIVE_BORDER, LV_PART_MAIN | LV_STATE_PRESSED);
+
+    lv_obj_set_style_transform_width(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_translate_x(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_translate_y(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+
+    lv_obj_set_style_text_color(label, text_color, LV_PART_MAIN);
 }
 
 void bottom_nav_set_active(
@@ -74,24 +75,20 @@ void bottom_nav_set_active(
 
 static void nav_button_event_cb(lv_event_t *event)
 {
-    if (s_nav == NULL) {
-        return;
-    }
-
     bottom_nav_page_t page = (bottom_nav_page_t)(intptr_t)
         lv_event_get_user_data(event);
 
-    bottom_nav_set_active(s_nav, page);
+    bottom_nav_set_active(&s_nav, page);
 }
 
 bottom_nav_t bottom_nav_create(
     lv_obj_t *parent,
     bottom_nav_page_t active_page)
 {
-    bottom_nav_t nav = {0};
+    memset(&s_nav, 0, sizeof(s_nav));
 
-    nav.root = parent;
-    nav.active_page = active_page;
+    s_nav.root = parent;
+    s_nav.active_page = active_page;
 
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -110,43 +107,37 @@ bottom_nav_t bottom_nav_create(
     lv_obj_set_style_pad_column(parent, 3, LV_PART_MAIN);
 
     for (int i = 0; i < NAV_ITEM_COUNT; i++) {
-        nav.buttons[i] = lv_btn_create(parent);
+        s_nav.buttons[i] = lv_btn_create(parent);
 
-        lv_obj_set_size(nav.buttons[i], 118, 38);
-        lv_obj_set_style_radius(nav.buttons[i], 7, LV_PART_MAIN);
-        lv_obj_set_style_shadow_width(nav.buttons[i], 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(nav.buttons[i], 0, LV_PART_MAIN);
+        /* Usuwamy motyw domyslny LVGL, aby przycisk nie zmienial geometrii. */
+        lv_obj_remove_style_all(s_nav.buttons[i]);
 
-        nav.labels[i] = lv_label_create(nav.buttons[i]);
-        lv_label_set_text(nav.labels[i], NAV_NAMES[i]);
+        lv_obj_set_size(s_nav.buttons[i], 118, 38);
+        lv_obj_set_style_radius(s_nav.buttons[i], 7, LV_PART_MAIN);
+        lv_obj_set_style_shadow_width(s_nav.buttons[i], 0, LV_PART_MAIN);
+        lv_obj_set_style_outline_width(s_nav.buttons[i], 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(s_nav.buttons[i], 0, LV_PART_MAIN);
+
+        s_nav.labels[i] = lv_label_create(s_nav.buttons[i]);
+        lv_label_set_text(s_nav.labels[i], NAV_NAMES[i]);
 
         lv_obj_set_style_text_font(
-            nav.labels[i],
+            s_nav.labels[i],
             &lv_font_montserrat_14,
             LV_PART_MAIN
         );
 
-        lv_obj_center(nav.labels[i]);
+        lv_obj_center(s_nav.labels[i]);
 
         lv_obj_add_event_cb(
-            nav.buttons[i],
+            s_nav.buttons[i],
             nav_button_event_cb,
             LV_EVENT_CLICKED,
             (void *)(intptr_t)i
         );
     }
 
-    s_nav = &nav;
+    bottom_nav_set_active(&s_nav, active_page);
 
-    /*
-     * s_nav musi wskazywać strukturę istniejącą po wyjściu z funkcji.
-     * Dlatego poniżej tworzona jest trwała kopia statyczna.
-     */
-    static bottom_nav_t persistent_nav;
-    persistent_nav = nav;
-    s_nav = &persistent_nav;
-
-    bottom_nav_set_active(s_nav, active_page);
-
-    return persistent_nav;
+    return s_nav;
 }
