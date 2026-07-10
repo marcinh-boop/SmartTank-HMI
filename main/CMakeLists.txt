@@ -16,6 +16,7 @@ idf_component_register(
 
         "services/clock_service.c"
         "services/data_simulator.c"
+        "services/ntp_service.c"
         "services/settings_storage.c"
         "services/wifi_service.c"
 
@@ -52,5 +53,6 @@ idf_component_register(
         esp_event
         esp_netif
         esp_wifi
+        lwip
         nvs_flash
 )
