@@ -5,6 +5,7 @@
 
 #include "app_model.h"
 #include "measurement_history.h"
+#include "screen_tank_detail.h"
 #include "theme.h"
 #include "lvgl.h"
 
@@ -24,6 +25,7 @@ typedef struct {
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_dashboard_content = NULL;
 static lv_obj_t *s_history_content = NULL;
+static lv_obj_t *s_tank_detail_content = NULL;
 static lv_obj_t *s_page_label = NULL;
 static lv_obj_t *s_source_label = NULL;
 static bottom_nav_t *s_nav = NULL;
@@ -36,6 +38,9 @@ static well_widget_t s_well_widget;
 static weather_widget_t s_weather_widget;
 static history_chart_view_t s_tank_history;
 static history_chart_view_t s_well_history;
+
+static void show_page(bottom_nav_page_t page);
+static void show_tank_detail(void);
 
 static lv_obj_t *create_bar(lv_obj_t *screen, lv_align_t align, int y)
 {
@@ -159,12 +164,31 @@ static history_chart_view_t create_history_chart(
     return view;
 }
 
+static void tank_card_event_cb(lv_event_t *event)
+{
+    (void)event;
+    show_tank_detail();
+}
+
+static void tank_detail_back_cb(void)
+{
+    show_page(NAV_DASHBOARD);
+    bottom_nav_set_active(s_nav, NAV_DASHBOARD);
+}
+
 static void build_dashboard_content(void)
 {
     s_dashboard_content = create_content_layer(s_screen);
 
     lv_obj_t *tank_card = create_card(s_dashboard_content, lv_color_hex(0x39D12F));
     lv_obj_align(tank_card, LV_ALIGN_TOP_LEFT, 20, 10);
+    lv_obj_add_flag(tank_card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(
+        tank_card,
+        lv_color_hex(0x10251A),
+        LV_PART_MAIN | LV_STATE_PRESSED
+    );
+    lv_obj_add_event_cb(tank_card, tank_card_event_cb, LV_EVENT_RELEASED, NULL);
     s_tank_widget = tank_widget_create(tank_card);
 
     lv_obj_t *well_card = create_card(s_dashboard_content, lv_color_hex(0x2EA8FF));
@@ -320,6 +344,8 @@ static void refresh_dashboard_from_model(bool force)
             state.weather.description
         );
 
+        screen_tank_detail_update(&state);
+
         if (state.system.simulation_active) {
             lv_label_set_text(s_source_label, "SYMULACJA | RS485: OFF");
         } else if (state.system.modbus_connected) {
@@ -338,8 +364,19 @@ static void dashboard_refresh_cb(lv_timer_t *timer)
     refresh_dashboard_from_model(false);
 }
 
+static void show_tank_detail(void)
+{
+    lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_tank_detail_content, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_page_label, "SZAMBO");
+    bottom_nav_set_active(s_nav, NAV_DASHBOARD);
+}
+
 static void show_page(bottom_nav_page_t page)
 {
+    lv_obj_add_flag(s_tank_detail_content, LV_OBJ_FLAG_HIDDEN);
+
     if (page == NAV_HISTORY) {
         lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_history_content, LV_OBJ_FLAG_HIDDEN);
@@ -375,6 +412,7 @@ static void build_screen(void)
 
     build_dashboard_content();
     build_history_content();
+    s_tank_detail_content = screen_tank_detail_create(s_screen, tank_detail_back_cb);
 
     lv_obj_t *bottom = create_bar(s_screen, LV_ALIGN_BOTTOM_MID, -8);
     s_nav = bottom_nav_create(bottom, NAV_DASHBOARD, nav_change);
