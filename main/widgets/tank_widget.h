@@ -4,6 +4,7 @@
 
 typedef struct {
     lv_obj_t *root;
+    lv_obj_t *capacity_label;
     lv_obj_t *arc;
     lv_obj_t *percent_label;
     lv_obj_t *volume_label;
@@ -20,5 +21,7 @@ void tank_widget_set_data(
     tank_widget_t *widget,
     int percent,
     float volume_m3,
-    float capacity_m3
+    float capacity_m3,
+    int warning_percent,
+    int critical_percent
 );
