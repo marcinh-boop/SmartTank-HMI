@@ -28,27 +28,23 @@ static void apply_button_style(
     const bool is_active = (page == nav->active_page);
     const lv_color_t bg_color = is_active ? NAV_ACTIVE_BG : NAV_BG;
     const lv_color_t text_color = is_active ? NAV_TEXT_ACTIVE : NAV_TEXT;
-    const lv_coord_t border_width = is_active ? 1 : 0;
+    const lv_opa_t border_opa = is_active ? LV_OPA_COVER : LV_OPA_TRANSP;
 
     lv_obj_t *button = nav->buttons[page];
     lv_obj_t *label = nav->labels[page];
 
-    /*
-     * Ten sam wyglad dla stanu normalnego i nacisnietego.
-     * Usuwa domyslna animacje/transformacje przycisku LVGL,
-     * ktora powodowala chwilowe "skakanie" interfejsu.
-     */
     lv_obj_set_style_bg_color(button, bg_color, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(button, bg_color, LV_PART_MAIN | LV_STATE_PRESSED);
-
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_PRESSED);
 
-    lv_obj_set_style_border_width(button, border_width, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(button, border_width, LV_PART_MAIN | LV_STATE_PRESSED);
-
+    /* Szerokosc obramowania jest zawsze taka sama, zmienia sie tylko widocznosc. */
+    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_border_color(button, NAV_ACTIVE_BORDER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_color(button, NAV_ACTIVE_BORDER, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_opa(button, border_opa, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(button, border_opa, LV_PART_MAIN | LV_STATE_PRESSED);
 
     lv_obj_set_style_transform_width(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_transform_height(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
@@ -91,6 +87,10 @@ bottom_nav_t bottom_nav_create(
     s_nav.active_page = active_page;
 
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
 
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(
@@ -109,8 +109,10 @@ bottom_nav_t bottom_nav_create(
     for (int i = 0; i < NAV_ITEM_COUNT; i++) {
         s_nav.buttons[i] = lv_btn_create(parent);
 
-        /* Usuwamy motyw domyslny LVGL, aby przycisk nie zmienial geometrii. */
         lv_obj_remove_style_all(s_nav.buttons[i]);
+        lv_obj_clear_flag(s_nav.buttons[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(s_nav.buttons[i], LV_OBJ_FLAG_SCROLL_ELASTIC);
+        lv_obj_clear_flag(s_nav.buttons[i], LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
         lv_obj_set_size(s_nav.buttons[i], 118, 38);
         lv_obj_set_style_radius(s_nav.buttons[i], 7, LV_PART_MAIN);
@@ -132,7 +134,7 @@ bottom_nav_t bottom_nav_create(
         lv_obj_add_event_cb(
             s_nav.buttons[i],
             nav_button_event_cb,
-            LV_EVENT_CLICKED,
+            LV_EVENT_RELEASED,
             (void *)(intptr_t)i
         );
     }
