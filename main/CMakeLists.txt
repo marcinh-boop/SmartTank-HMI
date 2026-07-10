@@ -9,6 +9,7 @@ idf_component_register(
         "model/app_model.c"
         "model/measurement_history.c"
         "services/data_simulator.c"
+        "services/settings_storage.c"
 
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
@@ -33,4 +34,7 @@ idf_component_register(
         "screens"
         "ui"
         "widgets"
+
+    PRIV_REQUIRES
+        nvs_flash
 )
