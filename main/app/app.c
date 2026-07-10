@@ -1,16 +1,38 @@
 #include "app.h"
 
 #include "esp_err.h"
+#include "esp_log.h"
 
 #include "app_model.h"
 #include "measurement_history.h"
 #include "data_simulator.h"
+#include "settings_storage.h"
 #include "lvgl_port.h"
 #include "screen_dashboard.h"
+
+static const char *TAG = "app";
 
 void app_start(void)
 {
     ESP_ERROR_CHECK(app_model_init());
+    ESP_ERROR_CHECK(settings_storage_init());
+
+    tank_channel_config_t stored_config;
+    const esp_err_t load_result =
+        settings_storage_load_tank_config(&stored_config);
+
+    if (load_result == ESP_OK) {
+        app_model_update_tank_config(&stored_config);
+    } else if (load_result == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "No saved tank configuration; using defaults");
+    } else {
+        ESP_LOGW(
+            TAG,
+            "Unable to load tank configuration: %s",
+            esp_err_to_name(load_result)
+        );
+    }
+
     ESP_ERROR_CHECK(measurement_history_init());
     ESP_ERROR_CHECK(data_simulator_start());
 
