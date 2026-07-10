@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -8,6 +9,8 @@
 
 typedef struct {
     uint32_t uptime_seconds;
+    int64_t epoch_seconds;
+    bool timestamp_valid;
     int tank_percent;
     int well_percent;
 } measurement_history_sample_t;
