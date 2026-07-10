@@ -158,13 +158,21 @@ lv_obj_t *screen_tank_detail_create(
     lv_obj_add_event_cb(back_button, back_button_event_cb, LV_EVENT_RELEASED, NULL);
     create_label(back_button, "< WSTECZ", ST_COLOR_TEXT, LV_ALIGN_CENTER, 0, 0);
 
+    lv_obj_t *calibration_button = lv_btn_create(s_root);
+    lv_obj_set_size(calibration_button, 245, 34);
+    lv_obj_align(calibration_button, LV_ALIGN_TOP_RIGHT, -20, 5);
+    lv_obj_set_style_bg_color(calibration_button, lv_color_hex(0x17212A), LV_PART_MAIN);
+    lv_obj_set_style_radius(calibration_button, 7, LV_PART_MAIN);
+    lv_obj_set_style_border_width(calibration_button, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(calibration_button, DETAIL_BORDER, LV_PART_MAIN);
+    lv_obj_add_state(calibration_button, LV_STATE_DISABLED);
     create_label(
-        s_root,
-        "mic+130 / wejscie analogowe / diagnostyka",
+        calibration_button,
+        "KALIBRACJA - NASTEPNY ETAP",
         ST_COLOR_TEXT_DIM,
-        LV_ALIGN_TOP_RIGHT,
-        -20,
-        14
+        LV_ALIGN_CENTER,
+        0,
+        0
     );
 
     lv_obj_t *state_panel = create_panel(s_root, 20, 245);
@@ -216,7 +224,7 @@ lv_obj_t *screen_tank_detail_create(
     s_source_value = create_value_row(measurement_panel, "Zrodlo", "--", 173);
     create_label(
         measurement_panel,
-        "Dane surowe beda pochodziły z Modbus RTU.",
+        "Dane surowe beda z Modbus RTU.",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_BOTTOM_LEFT,
         0,
@@ -232,23 +240,6 @@ lv_obj_t *screen_tank_detail_create(
     s_full_value = create_value_row(config_panel, "PELNE", "-- mm", 164);
     s_warning_value = create_value_row(config_panel, "Ostrzezenie", "--%", 197);
     s_critical_value = create_value_row(config_panel, "Alarm", "--%", 230);
-
-    lv_obj_t *calibration_button = lv_btn_create(config_panel);
-    lv_obj_set_size(calibration_button, 210, 32);
-    lv_obj_align(calibration_button, LV_ALIGN_BOTTOM_MID, 0, 2);
-    lv_obj_set_style_bg_color(calibration_button, lv_color_hex(0x17212A), LV_PART_MAIN);
-    lv_obj_set_style_radius(calibration_button, 7, LV_PART_MAIN);
-    lv_obj_set_style_border_width(calibration_button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(calibration_button, DETAIL_BORDER, LV_PART_MAIN);
-    lv_obj_add_state(calibration_button, LV_STATE_DISABLED);
-    create_label(
-        calibration_button,
-        "KALIBRACJA - NASTEPNY ETAP",
-        ST_COLOR_TEXT_DIM,
-        LV_ALIGN_CENTER,
-        0,
-        0
-    );
 
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     return s_root;
