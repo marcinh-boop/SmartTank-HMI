@@ -7,6 +7,7 @@ idf_component_register(
         "app/app.c"
 
         "model/app_model.c"
+        "model/measurement_history.c"
         "services/data_simulator.c"
 
         "screens/screen_boot.c"
