@@ -12,6 +12,7 @@ idf_component_register(
 
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
+        "screens/screen_tank_detail.c"
         "screens/screen_history.c"
         "screens/screen_display_test.c"
 
