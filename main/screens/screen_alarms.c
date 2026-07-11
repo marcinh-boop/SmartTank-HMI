@@ -1,7 +1,7 @@
 #include "screen_alarms.h"
 
-#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include "alarm_service.h"
@@ -9,6 +9,7 @@
 
 #define ALARM_BG          lv_color_hex(0x06111B)
 #define ALARM_PANEL       lv_color_hex(0x0B1825)
+#define ALARM_ROW         lv_color_hex(0x091621)
 #define ALARM_BORDER      lv_color_hex(0x24384A)
 #define ALARM_BLUE        lv_color_hex(0x2EA8FF)
 #define ALARM_GREEN       lv_color_hex(0x39D12F)
@@ -17,31 +18,22 @@
 #define ALARM_BUTTON_BG   lv_color_hex(0x12314A)
 #define ALARM_EPOCH_MIN   1704067200LL
 
-#define ALARM_CARD_WIDTH  370
-#define ALARM_CARD_HEIGHT 112
-
-typedef struct {
-    lv_obj_t *card;
-    lv_obj_t *title;
-    lv_obj_t *severity;
-    lv_obj_t *message;
-    lv_obj_t *state;
-    lv_obj_t *time;
-    lv_obj_t *ack_button;
-} alarm_card_view_t;
+#define COL_TIME_WIDTH      108
+#define COL_TITLE_WIDTH     190
+#define COL_EVENT_WIDTH     112
+#define COL_SEVERITY_WIDTH  102
+#define COL_MESSAGE_WIDTH   236
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_summary;
+static lv_obj_t *s_ack_all_button;
+static lv_obj_t *s_table;
 static lv_obj_t *s_empty_label;
 static lv_timer_t *s_refresh_timer;
-static uint32_t s_last_revision;
-static alarm_card_view_t s_cards[ALARM_SERVICE_ITEM_COUNT];
-static alarm_id_t s_card_ids[ALARM_SERVICE_ITEM_COUNT] = {
-    ALARM_ID_TANK_WARNING,
-    ALARM_ID_TANK_CRITICAL,
-    ALARM_ID_TANK_SENSOR,
-    ALARM_ID_MODBUS_COMMUNICATION,
-};
+static uint32_t s_last_service_revision;
+static uint32_t s_last_event_revision;
+static alarm_service_snapshot_t s_service_snapshot;
+static alarm_event_log_snapshot_t s_event_snapshot;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -94,27 +86,23 @@ static lv_obj_t *create_button(
     return button;
 }
 
-static lv_color_t severity_color(alarm_severity_t severity)
+static void acknowledge_all_cb(lv_event_t *event)
 {
-    return severity == ALARM_SEVERITY_CRITICAL ? ALARM_RED : ALARM_YELLOW;
+    (void)event;
+    (void)alarm_service_acknowledge_all();
 }
 
-static void format_alarm_time(
-    const alarm_item_t *item,
+static void format_event_time(
+    const alarm_event_t *event,
     char *buffer,
     size_t buffer_size)
 {
-    if (item == NULL || buffer == NULL || buffer_size == 0U) {
+    if (event == NULL || buffer == NULL || buffer_size == 0U) {
         return;
     }
 
-    const int64_t epoch = item->active ? item->active_since_epoch : item->cleared_epoch;
-    const uint32_t uptime = item->active
-        ? item->active_since_uptime
-        : item->cleared_uptime;
-
-    if (epoch >= ALARM_EPOCH_MIN) {
-        const time_t event_time = (time_t)epoch;
+    if (event->epoch >= ALARM_EPOCH_MIN) {
+        const time_t event_time = (time_t)event->epoch;
         struct tm local_time = {0};
         if (localtime_r(&event_time, &local_time) != NULL) {
             snprintf(
@@ -131,189 +119,215 @@ static void format_alarm_time(
         }
     }
 
-    snprintf(buffer, buffer_size, "T+%lu s", (unsigned long)uptime);
+    snprintf(buffer, buffer_size, "T+%lu s", (unsigned long)event->uptime);
 }
 
-static void acknowledge_cb(lv_event_t *event)
+static void copy_short_text(
+    char *destination,
+    size_t destination_size,
+    const char *source,
+    size_t maximum_characters)
 {
-    alarm_id_t *id = lv_event_get_user_data(event);
-    if (id == NULL) {
+    if (destination == NULL || destination_size == 0U) {
         return;
     }
 
-    (void)alarm_service_acknowledge(*id);
+    if (source == NULL) {
+        destination[0] = '\0';
+        return;
+    }
+
+    const size_t source_length = strnlen(source, maximum_characters + 1U);
+    if (source_length <= maximum_characters) {
+        snprintf(destination, destination_size, "%s", source);
+        return;
+    }
+
+    const size_t copy_length = maximum_characters > 3U
+        ? maximum_characters - 3U
+        : 0U;
+    snprintf(
+        destination,
+        destination_size,
+        "%.*s...",
+        (int)copy_length,
+        source
+    );
 }
 
-static void acknowledge_all_cb(lv_event_t *event)
-{
-    (void)event;
-    (void)alarm_service_acknowledge_all();
-}
-
-static alarm_card_view_t create_alarm_card(
+static void set_header_label(
     lv_obj_t *parent,
-    uint8_t index,
+    const char *text,
     int x,
-    int y)
+    int width)
 {
-    alarm_card_view_t view = {0};
-
-    view.card = lv_obj_create(parent);
-    lv_obj_set_size(view.card, ALARM_CARD_WIDTH, ALARM_CARD_HEIGHT);
-    lv_obj_set_pos(view.card, x, y);
-    style_panel(view.card, 10);
-    lv_obj_set_style_pad_all(view.card, 10, LV_PART_MAIN);
-
-    view.title = create_label(
-        view.card,
-        "--",
-        ST_COLOR_TEXT,
-        &lv_font_montserrat_14
-    );
-    lv_obj_align(view.title, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_width(view.title, 220);
-    lv_label_set_long_mode(view.title, LV_LABEL_LONG_DOT);
-
-    view.severity = create_label(
-        view.card,
-        "--",
-        ALARM_YELLOW,
-        &lv_font_montserrat_12
-    );
-    lv_obj_align(view.severity, LV_ALIGN_TOP_RIGHT, 0, 1);
-
-    view.message = create_label(
-        view.card,
-        "--",
+    lv_obj_t *label = create_label(
+        parent,
+        text,
         ST_COLOR_TEXT_DIM,
         &lv_font_montserrat_12
     );
-    lv_obj_align(view.message, LV_ALIGN_TOP_LEFT, 0, 25);
-    lv_obj_set_width(view.message, 340);
-    lv_label_set_long_mode(view.message, LV_LABEL_LONG_DOT);
-
-    view.state = create_label(
-        view.card,
-        "--",
-        ALARM_YELLOW,
-        &lv_font_montserrat_12
-    );
-    lv_obj_align(view.state, LV_ALIGN_TOP_LEFT, 0, 52);
-
-    view.time = create_label(
-        view.card,
-        "--",
-        ST_COLOR_TEXT_DIM,
-        &lv_font_montserrat_12
-    );
-    lv_obj_align(view.time, LV_ALIGN_TOP_LEFT, 0, 76);
-
-    view.ack_button = create_button(view.card, "POTWIERDZ", 100, 30);
-    lv_obj_align(view.ack_button, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_add_event_cb(
-        view.ack_button,
-        acknowledge_cb,
-        LV_EVENT_RELEASED,
-        &s_card_ids[index]
-    );
-
-    lv_obj_add_flag(view.card, LV_OBJ_FLAG_HIDDEN);
-    return view;
+    lv_obj_set_pos(label, x + 6, 7);
+    lv_obj_set_width(label, width - 12);
 }
 
-static void update_card(
-    alarm_card_view_t *view,
-    const alarm_item_t *item)
+static void build_table_header(lv_obj_t *parent)
 {
-    if (view == NULL || item == NULL) {
-        return;
-    }
+    lv_obj_t *header = lv_obj_create(parent);
+    lv_obj_set_size(header, 760, 28);
+    lv_obj_set_pos(header, 20, 122);
+    style_panel(header, 0);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x102334), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(header, 0, LV_PART_MAIN);
 
-    if (item->occurrence_count == 0U && !item->active) {
-        lv_obj_add_flag(view->card, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
+    int x = 0;
+    set_header_label(header, "CZAS", x, COL_TIME_WIDTH);
+    x += COL_TIME_WIDTH;
+    set_header_label(header, "ALARM", x, COL_TITLE_WIDTH);
+    x += COL_TITLE_WIDTH;
+    set_header_label(header, "ZDARZENIE", x, COL_EVENT_WIDTH);
+    x += COL_EVENT_WIDTH;
+    set_header_label(header, "PRIORYTET", x, COL_SEVERITY_WIDTH);
+    x += COL_SEVERITY_WIDTH;
+    set_header_label(header, "OPIS", x, COL_MESSAGE_WIDTH);
+}
 
-    lv_obj_clear_flag(view->card, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(view->title, item->title);
-    lv_label_set_text(
-        view->severity,
-        alarm_service_severity_name(item->severity)
+static void build_event_table(lv_obj_t *parent)
+{
+    s_table = lv_table_create(parent);
+    lv_obj_set_size(s_table, 760, 230);
+    lv_obj_set_pos(s_table, 20, 150);
+    lv_table_set_col_cnt(s_table, 5);
+    lv_table_set_row_cnt(s_table, 1);
+    lv_table_set_col_width(s_table, 0, COL_TIME_WIDTH);
+    lv_table_set_col_width(s_table, 1, COL_TITLE_WIDTH);
+    lv_table_set_col_width(s_table, 2, COL_EVENT_WIDTH);
+    lv_table_set_col_width(s_table, 3, COL_SEVERITY_WIDTH);
+    lv_table_set_col_width(s_table, 4, COL_MESSAGE_WIDTH);
+
+    lv_obj_set_style_bg_color(s_table, ALARM_PANEL, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_table, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_table, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_table, ALARM_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_table, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(s_table, 0, LV_PART_MAIN);
+
+    lv_obj_set_style_bg_color(s_table, ALARM_ROW, LV_PART_ITEMS);
+    lv_obj_set_style_bg_opa(s_table, LV_OPA_COVER, LV_PART_ITEMS);
+    lv_obj_set_style_border_width(s_table, 1, LV_PART_ITEMS);
+    lv_obj_set_style_border_color(s_table, ALARM_BORDER, LV_PART_ITEMS);
+    lv_obj_set_style_text_color(s_table, ST_COLOR_TEXT, LV_PART_ITEMS);
+    lv_obj_set_style_text_font(s_table, &lv_font_montserrat_12, LV_PART_ITEMS);
+    lv_obj_set_style_pad_left(s_table, 6, LV_PART_ITEMS);
+    lv_obj_set_style_pad_right(s_table, 6, LV_PART_ITEMS);
+    lv_obj_set_style_pad_top(s_table, 7, LV_PART_ITEMS);
+    lv_obj_set_style_pad_bottom(s_table, 7, LV_PART_ITEMS);
+
+    lv_obj_set_scroll_dir(s_table, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_table, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_clear_flag(s_table, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(s_table, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+
+    s_empty_label = create_label(
+        parent,
+        "BRAK ZAREJESTROWANYCH ZDARZEN",
+        ALARM_GREEN,
+        &lv_font_montserrat_16
     );
-    lv_obj_set_style_text_color(
-        view->severity,
-        severity_color(item->severity),
-        LV_PART_MAIN
-    );
-    lv_label_set_text(view->message, item->message);
+    lv_obj_align_to(s_empty_label, s_table, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(s_empty_label, LV_OBJ_FLAG_CLICKABLE);
+}
 
-    if (item->active) {
-        lv_label_set_text(
-            view->state,
-            item->acknowledged ? "AKTYWNY / POTWIERDZONY" : "AKTYWNY / NOWY"
-        );
-        lv_obj_set_style_text_color(
-            view->state,
-            item->acknowledged ? ALARM_BLUE : severity_color(item->severity),
-            LV_PART_MAIN
-        );
+static void update_table(void)
+{
+    const uint16_t row_count = s_event_snapshot.count > 0U
+        ? s_event_snapshot.count
+        : 1U;
+    lv_table_set_row_cnt(s_table, row_count);
 
-        if (item->acknowledged) {
-            lv_obj_add_flag(view->ack_button, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_clear_flag(view->ack_button, LV_OBJ_FLAG_HIDDEN);
+    if (s_event_snapshot.count == 0U) {
+        for (uint8_t column = 0U; column < 5U; column++) {
+            lv_table_set_cell_value(s_table, 0U, column, "");
         }
-    } else {
-        lv_label_set_text(view->state, "USTAPIL");
-        lv_obj_set_style_text_color(view->state, ALARM_GREEN, LV_PART_MAIN);
-        lv_obj_add_flag(view->ack_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_empty_label, LV_OBJ_FLAG_HIDDEN);
+        return;
     }
 
-    char time_buffer[32];
-    format_alarm_time(item, time_buffer, sizeof(time_buffer));
-    lv_label_set_text(view->time, time_buffer);
+    lv_obj_add_flag(s_empty_label, LV_OBJ_FLAG_HIDDEN);
+
+    for (uint8_t index = 0U; index < s_event_snapshot.count; index++) {
+        const alarm_event_t *event = &s_event_snapshot.events[index];
+        char time_text[24];
+        char title_text[32];
+        char message_text[40];
+
+        format_event_time(event, time_text, sizeof(time_text));
+        copy_short_text(title_text, sizeof(title_text), event->title, 25U);
+        copy_short_text(message_text, sizeof(message_text), event->message, 34U);
+
+        lv_table_set_cell_value(s_table, index, 0U, time_text);
+        lv_table_set_cell_value(s_table, index, 1U, title_text);
+        lv_table_set_cell_value(
+            s_table,
+            index,
+            2U,
+            alarm_service_event_name(event->type)
+        );
+        lv_table_set_cell_value(
+            s_table,
+            index,
+            3U,
+            alarm_service_severity_name(event->severity)
+        );
+        lv_table_set_cell_value(s_table, index, 4U, message_text);
+    }
 }
 
 static void refresh_screen(bool force)
 {
-    alarm_service_snapshot_t snapshot;
-    alarm_service_get_snapshot(&snapshot);
+    alarm_service_get_snapshot(&s_service_snapshot);
+    alarm_service_get_event_log(&s_event_snapshot);
 
-    if (!force && snapshot.revision == s_last_revision) {
+    if (!force &&
+        s_service_snapshot.revision == s_last_service_revision &&
+        s_event_snapshot.revision == s_last_event_revision) {
         return;
     }
-    s_last_revision = snapshot.revision;
 
-    char summary[96];
+    const bool events_changed = force ||
+        s_event_snapshot.revision != s_last_event_revision;
+
+    s_last_service_revision = s_service_snapshot.revision;
+    s_last_event_revision = s_event_snapshot.revision;
+
+    char summary[128];
     snprintf(
         summary,
         sizeof(summary),
-        "AKTYWNE: %u    NOWE: %u    ZAPIS: RAM",
-        (unsigned int)snapshot.active_count,
-        (unsigned int)snapshot.unacknowledged_count
+        "AKTYWNE: %u   NOWE: %u   ZDARZENIA: %lu   RAM: %u/%u",
+        (unsigned int)s_service_snapshot.active_count,
+        (unsigned int)s_service_snapshot.unacknowledged_count,
+        (unsigned long)s_event_snapshot.total_count,
+        (unsigned int)s_event_snapshot.count,
+        (unsigned int)ALARM_EVENT_LOG_CAPACITY
     );
     lv_label_set_text(s_summary, summary);
     lv_obj_set_style_text_color(
         s_summary,
-        snapshot.unacknowledged_count > 0U
+        s_service_snapshot.unacknowledged_count > 0U
             ? ALARM_RED
-            : (snapshot.active_count > 0U ? ALARM_YELLOW : ALARM_GREEN),
+            : (s_service_snapshot.active_count > 0U ? ALARM_YELLOW : ALARM_GREEN),
         LV_PART_MAIN
     );
 
-    uint8_t visible_count = 0U;
-    for (uint8_t index = 0U; index < ALARM_SERVICE_ITEM_COUNT; index++) {
-        update_card(&s_cards[index], &snapshot.items[index]);
-        if (snapshot.items[index].occurrence_count > 0U ||
-            snapshot.items[index].active) {
-            visible_count++;
-        }
+    if (s_service_snapshot.unacknowledged_count == 0U) {
+        lv_obj_add_state(s_ack_all_button, LV_STATE_DISABLED);
+    } else {
+        lv_obj_clear_state(s_ack_all_button, LV_STATE_DISABLED);
     }
 
-    if (visible_count == 0U) {
-        lv_obj_clear_flag(s_empty_label, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_empty_label, LV_OBJ_FLAG_HIDDEN);
+    if (events_changed) {
+        update_table();
     }
 }
 
@@ -352,7 +366,7 @@ static void build_screen(lv_obj_t *parent_screen)
 
     lv_obj_t *title = create_label(
         top,
-        "CENTRUM ALARMOW",
+        "DZIENNIK ALARMOW",
         ALARM_RED,
         &lv_font_montserrat_14
     );
@@ -360,7 +374,7 @@ static void build_screen(lv_obj_t *parent_screen)
 
     lv_obj_t *status = create_label(
         top,
-        "POZIOM / CZUJNIK / MODBUS",
+        "AKTYWACJA / POTWIERDZENIE / USTAPIENIE",
         ST_COLOR_TEXT_DIM,
         &lv_font_montserrat_12
     );
@@ -377,33 +391,28 @@ static void build_screen(lv_obj_t *parent_screen)
 
     s_summary = create_label(
         summary_panel,
-        "AKTYWNE: 0    NOWE: 0    ZAPIS: RAM",
+        "AKTYWNE: 0   NOWE: 0   ZDARZENIA: 0   RAM: 0/32",
         ALARM_GREEN,
         &lv_font_montserrat_14
     );
     lv_obj_align(s_summary, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *ack_all = create_button(summary_panel, "POTWIERDZ WSZYSTKIE", 160, 32);
-    lv_obj_align(ack_all, LV_ALIGN_RIGHT_MID, 0, 0);
+    s_ack_all_button = create_button(
+        summary_panel,
+        "POTWIERDZ WSZYSTKIE",
+        160,
+        32
+    );
+    lv_obj_align(s_ack_all_button, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_add_event_cb(
-        ack_all,
+        s_ack_all_button,
         acknowledge_all_cb,
         LV_EVENT_RELEASED,
         NULL
     );
 
-    s_cards[0] = create_alarm_card(s_root, 0U, 20, 124);
-    s_cards[1] = create_alarm_card(s_root, 1U, 410, 124);
-    s_cards[2] = create_alarm_card(s_root, 2U, 20, 242);
-    s_cards[3] = create_alarm_card(s_root, 3U, 410, 242);
-
-    s_empty_label = create_label(
-        s_root,
-        "BRAK ZAREJESTROWANYCH ALARMOW",
-        ALARM_GREEN,
-        &lv_font_montserrat_20
-    );
-    lv_obj_align(s_empty_label, LV_ALIGN_CENTER, 0, 72);
+    build_table_header(s_root);
+    build_event_table(s_root);
 
     s_refresh_timer = lv_timer_create(refresh_timer_cb, 500, NULL);
     refresh_screen(true);
