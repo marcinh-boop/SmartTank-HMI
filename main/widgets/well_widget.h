@@ -4,10 +4,14 @@
 
 typedef struct {
     lv_obj_t *root;
+    lv_obj_t *depth_label;
     lv_obj_t *arc;
     lv_obj_t *level_label;
     lv_obj_t *description_label;
     lv_obj_t *vertical_bar;
+    lv_obj_t *scale_top_label;
+    lv_obj_t *scale_mid_label;
+    lv_obj_t *scale_bottom_label;
     lv_obj_t *status_label;
     lv_obj_t *reserve_value;
     lv_obj_t *consumption_value;
