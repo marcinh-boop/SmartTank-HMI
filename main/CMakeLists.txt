@@ -36,6 +36,8 @@ idf_component_register(
         "screens/screen_well_detail.c"
         "screens/screen_well_calibration.c"
         "screens/well_detail_integration.c"
+        "screens/screen_weather_detail.c"
+        "screens/weather_detail_integration.c"
         "screens/screen_service.c"
         "screens/screen_settings.c"
         "screens/screen_settings_weather.c"
