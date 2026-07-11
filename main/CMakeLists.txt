@@ -8,12 +8,14 @@ idf_component_register(
 
         "drivers/rs485_port.c"
         "drivers/rtc_pcf85063.c"
+        "drivers/waveshare_analog_8ch.c"
 
         "model/app_model.c"
         "model/measurement_history.c"
 
         "protocol/modbus_rtu_client.c"
 
+        "services/analog_module_service.c"
         "services/clock_service.c"
         "services/data_simulator.c"
         "services/ntp_service.c"
