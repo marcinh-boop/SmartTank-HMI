@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "theme.h"
+#include "well_settings.h"
 
 #define WELL_BLUE        lv_color_hex(0x2EA8FF)
 #define WELL_GREEN       lv_color_hex(0x39D12F)
@@ -11,8 +12,6 @@
 #define WELL_PANEL       lv_color_hex(0x0B1825)
 #define WELL_BORDER      lv_color_hex(0x24384A)
 #define WELL_ROW_BORDER  lv_color_hex(0x183046)
-#define WELL_LOW_PERCENT 30
-#define WELL_ALARM_PERCENT 15
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_arc;
@@ -29,7 +28,10 @@ static lv_obj_t *s_sensor_value;
 static lv_obj_t *s_input_value;
 static lv_obj_t *s_channel_value;
 static lv_obj_t *s_range_value;
+static lv_obj_t *s_warning_value;
+static lv_obj_t *s_critical_value;
 static screen_well_detail_back_cb_t s_back_cb;
+static screen_well_detail_calibration_cb_t s_calibration_cb;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -119,9 +121,16 @@ static lv_obj_t *create_value_row(
 static void back_button_event_cb(lv_event_t *event)
 {
     (void)event;
-
     if (s_back_cb != NULL) {
         s_back_cb();
+    }
+}
+
+static void calibration_button_event_cb(lv_event_t *event)
+{
+    (void)event;
+    if (s_calibration_cb != NULL) {
+        s_calibration_cb();
     }
 }
 
@@ -132,34 +141,24 @@ static int level_percent(const well_measurement_t *well)
     }
 
     int percent = (int)((well->water_column_m / well->well_depth_m) * 100.0f);
-    if (percent < 0) {
-        percent = 0;
-    }
-    if (percent > 100) {
-        percent = 100;
-    }
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
     return percent;
 }
 
 static const char *health_text(
     sensor_health_t health,
     bool valid,
-    int percent)
+    int percent,
+    const well_settings_t *settings)
 {
-    if (!valid) {
-        return "BRAK DANYCH";
-    }
-
-    if (health == SENSOR_HEALTH_OFFLINE) {
-        return "CZUJNIK OFFLINE";
-    }
-    if (health == SENSOR_HEALTH_FAULT) {
-        return "BLAD CZUJNIKA";
-    }
-    if (health == SENSOR_HEALTH_CRITICAL || percent <= WELL_ALARM_PERCENT) {
+    if (!valid) return "BRAK DANYCH";
+    if (health == SENSOR_HEALTH_OFFLINE) return "CZUJNIK OFFLINE";
+    if (health == SENSOR_HEALTH_FAULT) return "BLAD CZUJNIKA";
+    if (health == SENSOR_HEALTH_CRITICAL || percent <= settings->critical_percent) {
         return "ALARM - NISKI POZIOM";
     }
-    if (health == SENSOR_HEALTH_WARNING || percent <= WELL_LOW_PERCENT) {
+    if (health == SENSOR_HEALTH_WARNING || percent <= settings->warning_percent) {
         return "NISKI POZIOM";
     }
     return "POZIOM OK";
@@ -168,15 +167,16 @@ static const char *health_text(
 static lv_color_t health_color(
     sensor_health_t health,
     bool valid,
-    int percent)
+    int percent,
+    const well_settings_t *settings)
 {
     if (!valid || health == SENSOR_HEALTH_OFFLINE || health == SENSOR_HEALTH_FAULT) {
         return WELL_RED;
     }
-    if (health == SENSOR_HEALTH_CRITICAL || percent <= WELL_ALARM_PERCENT) {
+    if (health == SENSOR_HEALTH_CRITICAL || percent <= settings->critical_percent) {
         return WELL_RED;
     }
-    if (health == SENSOR_HEALTH_WARNING || percent <= WELL_LOW_PERCENT) {
+    if (health == SENSOR_HEALTH_WARNING || percent <= settings->warning_percent) {
         return WELL_YELLOW;
     }
     return WELL_BLUE;
@@ -184,9 +184,11 @@ static lv_color_t health_color(
 
 lv_obj_t *screen_well_detail_create(
     lv_obj_t *parent,
-    screen_well_detail_back_cb_t back_cb)
+    screen_well_detail_back_cb_t back_cb,
+    screen_well_detail_calibration_cb_t calibration_cb)
 {
     s_back_cb = back_cb;
+    s_calibration_cb = calibration_cb;
 
     s_root = lv_obj_create(parent);
     lv_obj_remove_style_all(s_root);
@@ -198,9 +200,20 @@ lv_obj_t *screen_well_detail_create(
     lv_obj_align(back_button, LV_ALIGN_TOP_LEFT, 20, 5);
     lv_obj_add_event_cb(back_button, back_button_event_cb, LV_EVENT_RELEASED, NULL);
 
+    lv_obj_t *calibration_button = create_button(s_root, "KALIBRACJA", 135, 34);
+    lv_obj_align(calibration_button, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_bg_color(calibration_button, lv_color_hex(0x514014), LV_PART_MAIN);
+    lv_obj_set_style_border_color(calibration_button, WELL_YELLOW, LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        calibration_button,
+        calibration_button_event_cb,
+        LV_EVENT_RELEASED,
+        NULL
+    );
+
     create_label(
         s_root,
-        "Poziom wody / diagnostyka / przyszly kanal 4-20 mA",
+        "Poziom wody / diagnostyka / kanal 4-20 mA",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_TOP_RIGHT,
         -20,
@@ -257,14 +270,14 @@ lv_obj_t *screen_well_detail_create(
     s_sample_value = create_value_row(measurement_panel, "Probka", "--", 198);
 
     lv_obj_t *config_panel = create_panel(s_root, 536, 244);
-    create_label(config_panel, "CZUJNIK I ZRODLO", WELL_YELLOW, LV_ALIGN_TOP_LEFT, 0, 0);
-    s_source_value = create_value_row(config_panel, "Zrodlo", "--", 28);
-    s_sensor_value = create_value_row(config_panel, "Czujnik", "Nie skonfig.", 58);
-    s_input_value = create_value_row(config_panel, "Wejscie", "Nie przypisano", 88);
-    s_channel_value = create_value_row(config_panel, "Kanal", "--", 118);
-    s_range_value = create_value_row(config_panel, "Zakres", "--", 148);
-    create_value_row(config_panel, "Niski poziom", "30%", 178);
-    create_value_row(config_panel, "Alarm", "15%", 208);
+    create_label(config_panel, "CZUJNIK I KALIBRACJA", WELL_YELLOW, LV_ALIGN_TOP_LEFT, 0, 0);
+    s_source_value = create_value_row(config_panel, "Zrodlo", "--", 22);
+    s_sensor_value = create_value_row(config_panel, "Czujnik", "--", 50);
+    s_input_value = create_value_row(config_panel, "Wejscie", "--", 78);
+    s_channel_value = create_value_row(config_panel, "Kanal", "--", 106);
+    s_range_value = create_value_row(config_panel, "PUSTA / PELNA", "--", 134);
+    s_warning_value = create_value_row(config_panel, "Ostrzezenie", "--", 162);
+    s_critical_value = create_value_row(config_panel, "Alarm", "--", 190);
 
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     return s_root;
@@ -276,11 +289,15 @@ void screen_well_detail_update(const smarttank_state_t *state)
         return;
     }
 
+    well_settings_t settings;
+    well_settings_get(&settings);
+
     const int percent = level_percent(&state->well);
     const lv_color_t status_color = health_color(
         state->well.health,
         state->well.valid,
-        percent
+        percent,
+        &settings
     );
     const float free_space_m = state->well.well_depth_m > state->well.water_column_m
         ? state->well.well_depth_m - state->well.water_column_m
@@ -305,7 +322,7 @@ void screen_well_detail_update(const smarttank_state_t *state)
 
     lv_label_set_text(
         s_status_label,
-        health_text(state->well.health, state->well.valid, percent)
+        health_text(state->well.health, state->well.valid, percent, &settings)
     );
     lv_obj_set_style_text_color(s_status_label, status_color, LV_PART_MAIN);
 
@@ -326,21 +343,30 @@ void screen_well_detail_update(const smarttank_state_t *state)
 
     if (state->system.simulation_active) {
         lv_label_set_text(s_source_value, "Symulacja");
-        lv_label_set_text(s_sensor_value, "Model testowy");
-        lv_label_set_text(s_input_value, "Wirtualne");
-        lv_label_set_text(s_channel_value, "--");
     } else if (state->system.modbus_connected) {
         lv_label_set_text(s_source_value, "Modbus RTU");
-        lv_label_set_text(s_sensor_value, "Do konfiguracji");
-        lv_label_set_text(s_input_value, "Do przypisania");
-        lv_label_set_text(s_channel_value, "--");
     } else {
         lv_label_set_text(s_source_value, "Offline");
-        lv_label_set_text(s_sensor_value, "Nie skonfig.");
-        lv_label_set_text(s_input_value, "Nie przypisano");
-        lv_label_set_text(s_channel_value, "--");
     }
 
-    snprintf(buffer, sizeof(buffer), "0.00 - %.2f m", state->well.well_depth_m);
+    lv_label_set_text(s_sensor_value, settings.sensor_model);
+    lv_label_set_text(s_input_value, settings.input_mode);
+
+    snprintf(buffer, sizeof(buffer), "AI%u", (unsigned int)settings.analog_channel);
+    lv_label_set_text(s_channel_value, buffer);
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%.0f / %.0f mm",
+        settings.distance_empty_mm,
+        settings.distance_full_mm
+    );
     lv_label_set_text(s_range_value, buffer);
+
+    snprintf(buffer, sizeof(buffer), "ponizej %d%%", settings.warning_percent);
+    lv_label_set_text(s_warning_value, buffer);
+
+    snprintf(buffer, sizeof(buffer), "ponizej %d%%", settings.critical_percent);
+    lv_label_set_text(s_critical_value, buffer);
 }
