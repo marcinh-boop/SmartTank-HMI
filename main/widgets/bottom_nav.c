@@ -2,6 +2,7 @@
 
 #include "alarm_service.h"
 #include "screen_alarms.h"
+#include "screen_info.h"
 #include "screen_service.h"
 #include "screen_settings.h"
 #include "screen_settings_weather.h"
@@ -118,6 +119,7 @@ void bottom_nav_set_active(bottom_nav_t *nav, bottom_nav_page_t active_page)
 static void hide_overlay_screens(void)
 {
     screen_alarms_hide();
+    screen_info_hide();
     screen_weather_location_hide();
     screen_service_hide();
     screen_settings_hide();
@@ -139,6 +141,7 @@ static void nav_button_event_cb(lv_event_t *event)
     }
 
     if (page == NAV_ALARMS) {
+        screen_info_hide();
         screen_weather_location_hide();
         screen_service_hide();
         screen_settings_hide();
@@ -149,6 +152,7 @@ static void nav_button_event_cb(lv_event_t *event)
 
     if (page == NAV_SETTINGS) {
         screen_alarms_hide();
+        screen_info_hide();
         screen_service_hide();
         screen_weather_location_hide();
         screen_settings_open(lv_scr_act());
@@ -159,9 +163,20 @@ static void nav_button_event_cb(lv_event_t *event)
 
     if (page == NAV_SERVICE) {
         screen_alarms_hide();
+        screen_info_hide();
         screen_weather_location_hide();
         screen_settings_hide();
         screen_service_open(lv_scr_act());
+        bottom_nav_set_active(nav, page);
+        return;
+    }
+
+    if (page == NAV_INFO) {
+        screen_alarms_hide();
+        screen_weather_location_hide();
+        screen_service_hide();
+        screen_settings_hide();
+        screen_info_open(lv_scr_act());
         bottom_nav_set_active(nav, page);
         return;
     }
