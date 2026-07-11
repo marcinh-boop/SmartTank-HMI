@@ -5,6 +5,8 @@
 
 #include "esp_err.h"
 
+#define WEATHER_FORECAST_DAYS 4U
+
 typedef enum {
     SENSOR_HEALTH_OK = 0,
     SENSOR_HEALTH_WARNING,
@@ -44,12 +46,26 @@ typedef struct {
 } well_measurement_t;
 
 typedef struct {
+    char day[4];
+    int weather_code;
+    float temperature_max_c;
+    float temperature_min_c;
+    int rain_percent;
+    bool valid;
+} weather_forecast_day_t;
+
+typedef struct {
     float temperature_c;
     int rain_percent;
     float wind_kmh;
     int humidity_percent;
+    int weather_code;
     char description[32];
     bool valid;
+    bool stale;
+    int64_t updated_epoch;
+    uint8_t forecast_count;
+    weather_forecast_day_t forecast[WEATHER_FORECAST_DAYS];
     uint32_t sample_counter;
 } weather_measurement_t;
 
