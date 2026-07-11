@@ -4,8 +4,11 @@
 #include <stdlib.h>
 
 #include "app_model.h"
+#include "esp_log.h"
+#include "screen_well_calibration.h"
 #include "screen_well_detail.h"
 #include "top_status_bar.h"
+#include "well_settings.h"
 
 #define DASHBOARD_LAYER_WIDTH   800
 #define DASHBOARD_LAYER_HEIGHT  340
@@ -17,10 +20,12 @@
 #define NAV_BUTTON_COUNT        6U
 #define REFRESH_INTERVAL_MS     500U
 
+static const char *TAG = "well_integration";
 static lv_obj_t *s_screen;
 static lv_obj_t *s_dashboard_content;
 static lv_obj_t *s_well_card;
 static lv_obj_t *s_detail_content;
+static lv_obj_t *s_calibration_content;
 static lv_timer_t *s_refresh_timer;
 static uint8_t s_nav_indices[NAV_BUTTON_COUNT];
 
@@ -110,22 +115,26 @@ static lv_obj_t *find_bottom_bar(lv_obj_t *screen)
     return NULL;
 }
 
-static void refresh_detail(void)
+static void refresh_visible_content(void)
 {
-    if (s_detail_content == NULL ||
-        lv_obj_has_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN)) {
-        return;
-    }
-
     smarttank_state_t state;
     app_model_get_snapshot(&state);
-    screen_well_detail_update(&state);
+
+    if (s_detail_content != NULL &&
+        !lv_obj_has_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN)) {
+        screen_well_detail_update(&state);
+    }
+
+    if (s_calibration_content != NULL &&
+        !lv_obj_has_flag(s_calibration_content, LV_OBJ_FLAG_HIDDEN)) {
+        screen_well_calibration_update_live(&state);
+    }
 }
 
 static void refresh_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    refresh_detail();
+    refresh_visible_content();
 }
 
 static void show_dashboard(void)
@@ -135,18 +144,71 @@ static void show_dashboard(void)
     }
 }
 
-static void hide_detail(void)
+static void hide_well_screens(void)
 {
     if (s_detail_content != NULL) {
         lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
     }
+    if (s_calibration_content != NULL) {
+        lv_obj_add_flag(s_calibration_content, LV_OBJ_FLAG_HIDDEN);
+    }
     top_status_bar_clear_page_override();
+}
+
+static void show_detail(void)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    screen_well_detail_update(&state);
+
+    if (s_dashboard_content != NULL) {
+        lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_calibration_content != NULL) {
+        lv_obj_add_flag(s_calibration_content, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_clear_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_detail_content);
+    top_status_bar_set_page_title("STUDNIA");
+}
+
+static void show_calibration(void)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    screen_well_calibration_begin(&state);
+
+    lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_calibration_content, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_calibration_content);
+    top_status_bar_set_page_title("KALIBRACJA STUDNI");
 }
 
 static void detail_back_cb(void)
 {
-    hide_detail();
+    hide_well_screens();
     show_dashboard();
+}
+
+static void detail_calibration_cb(void)
+{
+    show_calibration();
+}
+
+static void calibration_back_cb(void)
+{
+    show_detail();
+}
+
+static void calibration_save_cb(const well_settings_t *settings)
+{
+    const esp_err_t err = well_settings_save(settings);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to save well calibration: %s", esp_err_to_name(err));
+        return;
+    }
+
+    show_detail();
 }
 
 static void well_card_event_cb(lv_event_t *event)
@@ -157,20 +219,13 @@ static void well_card_event_cb(lv_event_t *event)
         return;
     }
 
-    smarttank_state_t state;
-    app_model_get_snapshot(&state);
-    screen_well_detail_update(&state);
-
-    lv_obj_add_flag(s_dashboard_content, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s_detail_content);
-    top_status_bar_set_page_title("STUDNIA");
+    show_detail();
 }
 
 static void nav_button_event_cb(lv_event_t *event)
 {
     const uint8_t *index = lv_event_get_user_data(event);
-    hide_detail();
+    hide_well_screens();
 
     if (index != NULL && *index == 0U) {
         show_dashboard();
@@ -230,11 +285,25 @@ bool well_detail_integration_attach(lv_obj_t *screen)
     s_screen = screen;
     s_dashboard_content = dashboard_content;
     s_well_card = well_card;
-    s_detail_content = screen_well_detail_create(screen, detail_back_cb);
-    if (s_detail_content == NULL) {
+    s_detail_content = screen_well_detail_create(
+        screen,
+        detail_back_cb,
+        detail_calibration_cb
+    );
+    s_calibration_content = screen_well_calibration_create(
+        screen,
+        calibration_back_cb,
+        calibration_save_cb
+    );
+
+    if (s_detail_content == NULL || s_calibration_content == NULL) {
+        if (s_detail_content != NULL) lv_obj_del(s_detail_content);
+        if (s_calibration_content != NULL) lv_obj_del(s_calibration_content);
         s_screen = NULL;
         s_dashboard_content = NULL;
         s_well_card = NULL;
+        s_detail_content = NULL;
+        s_calibration_content = NULL;
         return false;
     }
 
@@ -253,10 +322,12 @@ bool well_detail_integration_attach(lv_obj_t *screen)
 
     if (!attach_navigation_callbacks(bottom_bar)) {
         lv_obj_del(s_detail_content);
+        lv_obj_del(s_calibration_content);
         s_screen = NULL;
         s_dashboard_content = NULL;
         s_well_card = NULL;
         s_detail_content = NULL;
+        s_calibration_content = NULL;
         return false;
     }
 
