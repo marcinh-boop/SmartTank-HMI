@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "alarm_service.h"
 #include "analog_module_service.h"
 #include "app_model.h"
 #include "measurement_history.h"
@@ -122,6 +123,15 @@ void app_start(void)
     }
 
     ESP_ERROR_CHECK(data_simulator_start());
+
+    const esp_err_t alarm_result = alarm_service_start();
+    if (alarm_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Alarm service unavailable: %s",
+            esp_err_to_name(alarm_result)
+        );
+    }
 
     if (lvgl_port_lock(-1)) {
         screen_dashboard_create();
