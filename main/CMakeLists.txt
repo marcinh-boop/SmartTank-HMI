@@ -18,6 +18,8 @@ idf_component_register(
         "services/data_simulator.c"
         "services/ntp_service.c"
         "services/settings_storage.c"
+        "services/weather_geocoding.c"
+        "services/weather_location_storage.c"
         "services/wifi_service.c"
 
         "screens/screen_boot.c"
@@ -26,6 +28,8 @@ idf_component_register(
         "screens/screen_tank_calibration.c"
         "screens/screen_service.c"
         "screens/screen_settings.c"
+        "screens/screen_settings_weather.c"
+        "screens/screen_weather_location.c"
         "screens/screen_history.c"
         "screens/screen_display_test.c"
 
@@ -52,8 +56,11 @@ idf_component_register(
     PRIV_REQUIRES
         driver
         esp_event
+        esp_http_client
         esp_netif
         esp_wifi
+        json
         lwip
+        mbedtls
         nvs_flash
 )
