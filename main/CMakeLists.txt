@@ -55,6 +55,7 @@ idf_component_register(
 
     PRIV_REQUIRES
         driver
+        esp-tls
         esp_event
         esp_http_client
         esp_netif
