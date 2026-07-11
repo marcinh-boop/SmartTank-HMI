@@ -66,7 +66,6 @@ idf_component_register(
         esp-tls
         esp_app_format
         esp_event
-        esp_flash
         esp_http_client
         esp_netif
         esp_wifi
@@ -74,4 +73,5 @@ idf_component_register(
         lwip
         mbedtls
         nvs_flash
+        spi_flash
 )
