@@ -18,6 +18,7 @@
 #include "lvgl_port.h"
 #include "panel_icons.h"
 #include "screen_dashboard.h"
+#include "top_status_bar.h"
 
 static const char *TAG = "app";
 
@@ -136,6 +137,11 @@ void app_start(void)
     if (lvgl_port_lock(-1)) {
         screen_dashboard_create();
         panel_icons_apply(lv_scr_act());
+
+        if (!top_status_bar_attach(lv_scr_act())) {
+            ESP_LOGW(TAG, "Unable to attach top status bar");
+        }
+
         lvgl_port_unlock();
     }
 }
