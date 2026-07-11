@@ -1,10 +1,14 @@
 #include "bottom_nav.h"
+
+#include "alarm_service.h"
+#include "screen_alarms.h"
 #include "screen_service.h"
 #include "screen_settings.h"
 #include "screen_settings_weather.h"
 #include "screen_weather_location.h"
 #include "theme.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define NAV_BG             lv_color_hex(0x08131F)
@@ -12,6 +16,8 @@
 #define NAV_ACTIVE_BORDER  lv_color_hex(0x2EA8FF)
 #define NAV_TEXT           lv_color_hex(0x8FA3B8)
 #define NAV_TEXT_ACTIVE    lv_color_hex(0xFFFFFF)
+#define NAV_ALARM_RED      lv_color_hex(0xFF4D4D)
+#define NAV_ALARM_YELLOW   lv_color_hex(0xFFC247)
 
 static const char *NAV_NAMES[NAV_ITEM_COUNT] = {
     "Pulpit",
@@ -60,6 +66,42 @@ static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
     lv_obj_set_style_text_color(label, text_color, LV_PART_MAIN);
 }
 
+static void refresh_alarm_badge(bottom_nav_t *nav)
+{
+    if (nav == NULL || nav->alarm_badge == NULL) {
+        return;
+    }
+
+    alarm_service_snapshot_t snapshot;
+    alarm_service_get_snapshot(&snapshot);
+
+    if (!snapshot.started || snapshot.active_count == 0U) {
+        lv_obj_add_flag(nav->alarm_badge, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    char text[4];
+    if (snapshot.active_count > 9U) {
+        snprintf(text, sizeof(text), "9+");
+    } else {
+        snprintf(text, sizeof(text), "%u", (unsigned int)snapshot.active_count);
+    }
+
+    lv_label_set_text(nav->alarm_badge, text);
+    lv_obj_set_style_bg_color(
+        nav->alarm_badge,
+        snapshot.unacknowledged_count > 0U ? NAV_ALARM_RED : NAV_ALARM_YELLOW,
+        LV_PART_MAIN
+    );
+    lv_obj_clear_flag(nav->alarm_badge, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void alarm_badge_timer_cb(lv_timer_t *timer)
+{
+    bottom_nav_t *nav = timer != NULL ? timer->user_data : NULL;
+    refresh_alarm_badge(nav);
+}
+
 void bottom_nav_set_active(bottom_nav_t *nav, bottom_nav_page_t active_page)
 {
     if (nav == NULL || active_page >= NAV_ITEM_COUNT) {
@@ -71,6 +113,14 @@ void bottom_nav_set_active(bottom_nav_t *nav, bottom_nav_page_t active_page)
     for (int i = 0; i < NAV_ITEM_COUNT; i++) {
         apply_button_style(nav, (bottom_nav_page_t)i);
     }
+}
+
+static void hide_overlay_screens(void)
+{
+    screen_alarms_hide();
+    screen_weather_location_hide();
+    screen_service_hide();
+    screen_settings_hide();
 }
 
 static void nav_button_event_cb(lv_event_t *event)
@@ -88,7 +138,17 @@ static void nav_button_event_cb(lv_event_t *event)
         return;
     }
 
+    if (page == NAV_ALARMS) {
+        screen_weather_location_hide();
+        screen_service_hide();
+        screen_settings_hide();
+        screen_alarms_open(lv_scr_act());
+        bottom_nav_set_active(nav, page);
+        return;
+    }
+
     if (page == NAV_SETTINGS) {
+        screen_alarms_hide();
         screen_service_hide();
         screen_weather_location_hide();
         screen_settings_open(lv_scr_act());
@@ -98,6 +158,7 @@ static void nav_button_event_cb(lv_event_t *event)
     }
 
     if (page == NAV_SERVICE) {
+        screen_alarms_hide();
         screen_weather_location_hide();
         screen_settings_hide();
         screen_service_open(lv_scr_act());
@@ -109,9 +170,7 @@ static void nav_button_event_cb(lv_event_t *event)
         return;
     }
 
-    screen_weather_location_hide();
-    screen_service_hide();
-    screen_settings_hide();
+    hide_overlay_screens();
     bottom_nav_set_active(nav, page);
 }
 
@@ -182,6 +241,24 @@ bottom_nav_t *bottom_nav_create(
         );
     }
 
+    nav->alarm_badge = lv_label_create(nav->buttons[NAV_ALARMS]);
+    lv_label_set_text(nav->alarm_badge, "0");
+    lv_obj_set_size(nav->alarm_badge, 20, 18);
+    lv_obj_align(nav->alarm_badge, LV_ALIGN_TOP_RIGHT, -18, -2);
+    lv_obj_set_style_text_font(nav->alarm_badge, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_color(nav->alarm_badge, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_align(nav->alarm_badge, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(nav->alarm_badge, NAV_ALARM_RED, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(nav->alarm_badge, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(nav->alarm_badge, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(nav->alarm_badge, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_width(nav->alarm_badge, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(nav->alarm_badge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(nav->alarm_badge, LV_OBJ_FLAG_HIDDEN);
+
+    nav->alarm_badge_timer = lv_timer_create(alarm_badge_timer_cb, 500, nav);
+
     bottom_nav_set_active(nav, active_page);
+    refresh_alarm_badge(nav);
     return nav;
 }
