@@ -27,7 +27,7 @@ well_widget_t well_widget_create(lv_obj_t *parent)
         0
     );
 
-    widget_label_create(
+    widget.depth_label = widget_label_create(
         parent,
         "Glebokosc: 4.00 m",
         ST_COLOR_TEXT_DIM,
@@ -101,7 +101,7 @@ well_widget_t well_widget_create(lv_obj_t *parent)
         LV_PART_MAIN
     );
 
-    widget_label_create(
+    widget.scale_top_label = widget_label_create(
         parent,
         "4.00 m",
         ST_COLOR_TEXT_DIM,
@@ -110,7 +110,7 @@ well_widget_t well_widget_create(lv_obj_t *parent)
         -75
     );
 
-    widget_label_create(
+    widget.scale_mid_label = widget_label_create(
         parent,
         "2.00 m",
         ST_COLOR_TEXT_DIM,
@@ -119,7 +119,7 @@ well_widget_t well_widget_create(lv_obj_t *parent)
         -2
     );
 
-    widget_label_create(
+    widget.scale_bottom_label = widget_label_create(
         parent,
         "0.00 m",
         ST_COLOR_TEXT_DIM,
@@ -214,8 +214,19 @@ void well_widget_set_data(
 
     char buffer[48];
 
+    snprintf(buffer, sizeof(buffer), "Glebokosc: %.2f m", well_depth_m);
+    lv_label_set_text(widget->depth_label, buffer);
+
     snprintf(buffer, sizeof(buffer), "%.2f m", water_column_m);
     lv_label_set_text(widget->level_label, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.2f m", well_depth_m);
+    lv_label_set_text(widget->scale_top_label, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.2f m", well_depth_m / 2.0f);
+    lv_label_set_text(widget->scale_mid_label, buffer);
+
+    lv_label_set_text(widget->scale_bottom_label, "0.00 m");
 
     lv_arc_set_value(widget->arc, percent);
     lv_bar_set_value(widget->vertical_bar, percent, LV_ANIM_ON);
