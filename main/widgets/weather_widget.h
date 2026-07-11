@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_model.h"
 #include "lvgl.h"
 
 typedef struct {
@@ -12,17 +13,13 @@ typedef struct {
     lv_obj_t *wind_value;
     lv_obj_t *humidity_value;
 
-    lv_obj_t *forecast_temp[4];
-    lv_obj_t *forecast_icon[4];
+    lv_obj_t *forecast_day[WEATHER_FORECAST_DAYS];
+    lv_obj_t *forecast_temp[WEATHER_FORECAST_DAYS];
+    lv_obj_t *forecast_icon[WEATHER_FORECAST_DAYS];
 } weather_widget_t;
 
 weather_widget_t weather_widget_create(lv_obj_t *parent);
-
-void weather_widget_set_current(
+void weather_widget_set_data(
     weather_widget_t *widget,
-    float temperature_c,
-    int rain_percent,
-    float wind_kmh,
-    int humidity_percent,
-    const char *description
+    const weather_measurement_t *measurement
 );
