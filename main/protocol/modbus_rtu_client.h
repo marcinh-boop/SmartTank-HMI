@@ -6,6 +6,8 @@
 
 #include "esp_err.h"
 
+#define MODBUS_RTU_FRAME_PREVIEW_SIZE 64U
+
 typedef struct {
     uint8_t slave_address;
     uint32_t response_timeout_ms;
@@ -21,6 +23,10 @@ typedef struct {
     uint32_t exceptions;
     uint8_t last_exception_code;
     esp_err_t last_error;
+    uint8_t last_request[MODBUS_RTU_FRAME_PREVIEW_SIZE];
+    size_t last_request_len;
+    uint8_t last_response[MODBUS_RTU_FRAME_PREVIEW_SIZE];
+    size_t last_response_len;
 } modbus_rtu_diagnostics_t;
 
 esp_err_t modbus_rtu_client_init(const modbus_rtu_client_config_t *config);
@@ -36,6 +42,11 @@ esp_err_t modbus_rtu_read_input_registers(
     uint16_t start_address,
     uint16_t register_count,
     uint16_t *registers
+);
+
+esp_err_t modbus_rtu_write_single_register(
+    uint16_t register_address,
+    uint16_t value
 );
 
 uint16_t modbus_rtu_crc16(const uint8_t *data, size_t length);
