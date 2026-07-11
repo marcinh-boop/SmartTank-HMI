@@ -24,6 +24,13 @@ static SemaphoreHandle_t s_mutex;
 static TaskHandle_t s_task;
 static alarm_service_snapshot_t s_snapshot;
 
+static alarm_event_t s_event_log[ALARM_EVENT_LOG_CAPACITY];
+static uint8_t s_event_start;
+static uint8_t s_event_count;
+static uint32_t s_event_revision;
+static uint32_t s_event_total_count;
+static uint32_t s_event_sequence;
+
 static bool state_lock(void)
 {
     return s_mutex != NULL &&
@@ -56,6 +63,13 @@ static int64_t current_epoch(void)
     return (int64_t)now >= VALID_EPOCH_MINIMUM ? (int64_t)now : 0LL;
 }
 
+static uint32_t current_uptime(void)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    return state.system.uptime_seconds;
+}
+
 static void initialize_item(
     alarm_item_t *item,
     alarm_id_t id,
@@ -70,6 +84,48 @@ static void initialize_item(
     item->id = id;
     item->severity = severity;
     copy_text(item->title, sizeof(item->title), title);
+}
+
+static void record_event_locked(
+    const alarm_item_t *item,
+    alarm_event_type_t type,
+    int64_t epoch,
+    uint32_t uptime)
+{
+    if (item == NULL) {
+        return;
+    }
+
+    uint8_t slot;
+    if (s_event_count < ALARM_EVENT_LOG_CAPACITY) {
+        slot = (uint8_t)((s_event_start + s_event_count) % ALARM_EVENT_LOG_CAPACITY);
+        s_event_count++;
+    } else {
+        slot = s_event_start;
+        s_event_start = (uint8_t)((s_event_start + 1U) % ALARM_EVENT_LOG_CAPACITY);
+    }
+
+    alarm_event_t *event = &s_event_log[slot];
+    memset(event, 0, sizeof(*event));
+    event->sequence = ++s_event_sequence;
+    event->id = item->id;
+    event->severity = item->severity;
+    event->type = type;
+    event->epoch = epoch;
+    event->uptime = uptime;
+    copy_text(event->title, sizeof(event->title), item->title);
+    copy_text(event->message, sizeof(event->message), item->message);
+
+    s_event_total_count++;
+    s_event_revision++;
+
+    ESP_LOGI(
+        TAG,
+        "Alarm event #%lu: %s / %s",
+        (unsigned long)event->sequence,
+        item->title,
+        alarm_service_event_name(type)
+    );
 }
 
 static bool set_message(alarm_item_t *item, const char *message)
@@ -104,6 +160,7 @@ static bool set_condition(
         item->cleared_epoch = 0LL;
         item->cleared_uptime = 0U;
         item->occurrence_count++;
+        record_event_locked(item, ALARM_EVENT_ACTIVATED, epoch, uptime);
         return true;
     }
 
@@ -111,6 +168,7 @@ static bool set_condition(
         item->active = false;
         item->cleared_epoch = epoch;
         item->cleared_uptime = uptime;
+        record_event_locked(item, ALARM_EVENT_CLEARED, epoch, uptime);
         return true;
     }
 
@@ -293,6 +351,13 @@ esp_err_t alarm_service_start(void)
     }
 
     memset(&s_snapshot, 0, sizeof(s_snapshot));
+    memset(s_event_log, 0, sizeof(s_event_log));
+    s_event_start = 0U;
+    s_event_count = 0U;
+    s_event_revision = 1U;
+    s_event_total_count = 0U;
+    s_event_sequence = 0U;
+
     initialize_item(
         &s_snapshot.items[ALARM_ID_TANK_WARNING],
         ALARM_ID_TANK_WARNING,
@@ -353,11 +418,39 @@ void alarm_service_get_snapshot(alarm_service_snapshot_t *snapshot)
     state_unlock();
 }
 
+void alarm_service_get_event_log(alarm_event_log_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    memset(snapshot, 0, sizeof(*snapshot));
+    if (!state_lock()) {
+        return;
+    }
+
+    snapshot->count = s_event_count;
+    snapshot->revision = s_event_revision;
+    snapshot->total_count = s_event_total_count;
+
+    for (uint8_t index = 0U; index < s_event_count; index++) {
+        const uint8_t source_index = (uint8_t)(
+            (s_event_start + s_event_count - 1U - index) % ALARM_EVENT_LOG_CAPACITY
+        );
+        snapshot->events[index] = s_event_log[source_index];
+    }
+
+    state_unlock();
+}
+
 esp_err_t alarm_service_acknowledge(alarm_id_t id)
 {
-    if (id < 0 || id >= ALARM_ID_COUNT) {
+    if ((unsigned int)id >= (unsigned int)ALARM_ID_COUNT) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    const int64_t epoch = current_epoch();
+    const uint32_t uptime = current_uptime();
 
     if (!state_lock()) {
         return ESP_ERR_INVALID_STATE;
@@ -371,6 +464,7 @@ esp_err_t alarm_service_acknowledge(alarm_id_t id)
 
     if (!item->acknowledged) {
         item->acknowledged = true;
+        record_event_locked(item, ALARM_EVENT_ACKNOWLEDGED, epoch, uptime);
         recalculate_counts();
         s_snapshot.revision++;
         ESP_LOGI(TAG, "Alarm acknowledged: %s", item->title);
@@ -382,6 +476,9 @@ esp_err_t alarm_service_acknowledge(alarm_id_t id)
 
 esp_err_t alarm_service_acknowledge_all(void)
 {
+    const int64_t epoch = current_epoch();
+    const uint32_t uptime = current_uptime();
+
     if (!state_lock()) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -391,6 +488,7 @@ esp_err_t alarm_service_acknowledge_all(void)
         alarm_item_t *item = &s_snapshot.items[index];
         if (item->active && !item->acknowledged) {
             item->acknowledged = true;
+            record_event_locked(item, ALARM_EVENT_ACKNOWLEDGED, epoch, uptime);
             changed = true;
         }
     }
@@ -408,4 +506,18 @@ esp_err_t alarm_service_acknowledge_all(void)
 const char *alarm_service_severity_name(alarm_severity_t severity)
 {
     return severity == ALARM_SEVERITY_CRITICAL ? "KRYTYCZNY" : "OSTRZEZENIE";
+}
+
+const char *alarm_service_event_name(alarm_event_type_t type)
+{
+    switch (type) {
+        case ALARM_EVENT_ACTIVATED:
+            return "AKTYWACJA";
+        case ALARM_EVENT_ACKNOWLEDGED:
+            return "POTWIERDZONO";
+        case ALARM_EVENT_CLEARED:
+            return "USTAPIL";
+        default:
+            return "NIEZNANE";
+    }
 }
