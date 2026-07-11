@@ -1,7 +1,5 @@
 #include "data_simulator.h"
 
-#include <string.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -56,21 +54,6 @@ static void publish_simulated_state(uint32_t tick)
         .sample_counter = tick + 1U,
     };
 
-    const float temperature_c = 17.0f + (float)triangle_wave(tick / 5U, 10U) * 0.20f;
-    const int rain_percent = 10 + (int)triangle_wave(tick / 4U, 20U);
-    weather_measurement_t weather = {
-        .temperature_c = temperature_c,
-        .rain_percent = rain_percent,
-        .wind_kmh = 8.0f + (float)triangle_wave(tick / 3U, 8U),
-        .humidity_percent = 55 + (int)triangle_wave(tick / 4U, 12U),
-        .valid = true,
-        .sample_counter = tick + 1U,
-    };
-
-    const char *description = rain_percent >= 25 ? "Przelotny deszcz" : "Zachmurzenie";
-    strncpy(weather.description, description, sizeof(weather.description) - 1U);
-    weather.description[sizeof(weather.description) - 1U] = '\0';
-
     system_status_t system = {
         .simulation_active = true,
         .modbus_connected = false,
@@ -80,7 +63,6 @@ static void publish_simulated_state(uint32_t tick)
 
     app_model_update_tank(&tank);
     app_model_update_well(&well);
-    app_model_update_weather(&weather);
     app_model_update_system(&system);
 
     measurement_history_add(
