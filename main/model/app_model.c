@@ -98,12 +98,13 @@ esp_err_t app_model_init(void)
     s_state.well.valid = true;
     s_state.well.health = SENSOR_HEALTH_OK;
 
-    s_state.weather.temperature_c = 18.6f;
-    s_state.weather.rain_percent = 10;
-    s_state.weather.wind_kmh = 12.0f;
-    s_state.weather.humidity_percent = 62;
-    strncpy(s_state.weather.description, "Zachmurzenie", sizeof(s_state.weather.description) - 1U);
-    s_state.weather.valid = true;
+    strncpy(
+        s_state.weather.description,
+        "Brak danych",
+        sizeof(s_state.weather.description) - 1U
+    );
+    s_state.weather.valid = false;
+    s_state.weather.stale = false;
 
     s_state.system.simulation_active = true;
     s_state.system.modbus_connected = false;
@@ -182,6 +183,17 @@ void app_model_update_weather(const weather_measurement_t *measurement)
 
     s_state.weather = *measurement;
     s_state.weather.description[sizeof(s_state.weather.description) - 1U] = '\0';
+
+    if (s_state.weather.forecast_count > WEATHER_FORECAST_DAYS) {
+        s_state.weather.forecast_count = WEATHER_FORECAST_DAYS;
+    }
+
+    for (uint8_t index = 0U; index < WEATHER_FORECAST_DAYS; index++) {
+        s_state.weather.forecast[index].day[
+            sizeof(s_state.weather.forecast[index].day) - 1U
+        ] = '\0';
+    }
+
     s_state.revision++;
     model_unlock();
 }
