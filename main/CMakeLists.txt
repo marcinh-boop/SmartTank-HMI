@@ -32,6 +32,7 @@ idf_component_register(
         "screens/screen_info.c"
         "screens/screen_tank_detail.c"
         "screens/screen_tank_calibration.c"
+        "screens/screen_well_detail.c"
         "screens/screen_service.c"
         "screens/screen_settings.c"
         "screens/screen_settings_weather.c"
