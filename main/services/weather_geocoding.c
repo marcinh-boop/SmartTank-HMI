@@ -10,6 +10,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -20,7 +21,8 @@
 #define GEOCODING_TASK_STACK     8192U
 #define GEOCODING_TASK_PRIORITY  2U
 #define GEOCODING_RESPONSE_SIZE  12288U
-#define GEOCODING_HTTP_TIMEOUT   12000
+#define GEOCODING_HTTP_TIMEOUT   15000
+#define GEOCODING_RETRY_DELAY_MS 700U
 
 static const char *TAG = "weather_geocoding";
 
@@ -33,6 +35,8 @@ typedef struct {
     size_t length;
     size_t capacity;
     bool overflow;
+    esp_err_t tls_error;
+    int mbedtls_error;
 } http_response_buffer_t;
 
 static SemaphoreHandle_t s_mutex;
@@ -142,26 +146,39 @@ static esp_err_t url_encode(
 
 static esp_err_t http_event_handler(esp_http_client_event_t *event)
 {
-    if (event == NULL || event->event_id != HTTP_EVENT_ON_DATA) {
+    if (event == NULL) {
         return ESP_OK;
     }
 
     http_response_buffer_t *response = event->user_data;
-    if (response == NULL || response->data == NULL || response->overflow) {
-        return ESP_FAIL;
-    }
 
-    const size_t incoming = event->data_len > 0 ? (size_t)event->data_len : 0U;
-    const size_t available = response->capacity - response->length - 1U;
-    if (incoming > available) {
-        response->overflow = true;
-        return ESP_ERR_NO_MEM;
-    }
+    if (event->event_id == HTTP_EVENT_ON_DATA) {
+        if (response == NULL || response->data == NULL || response->overflow) {
+            return ESP_FAIL;
+        }
 
-    if (incoming > 0U) {
-        memcpy(response->data + response->length, event->data, incoming);
-        response->length += incoming;
-        response->data[response->length] = '\0';
+        const size_t incoming = event->data_len > 0
+            ? (size_t)event->data_len
+            : 0U;
+        const size_t available = response->capacity - response->length - 1U;
+
+        if (incoming > available) {
+            response->overflow = true;
+            return ESP_ERR_NO_MEM;
+        }
+
+        if (incoming > 0U) {
+            memcpy(response->data + response->length, event->data, incoming);
+            response->length += incoming;
+            response->data[response->length] = '\0';
+        }
+    } else if (event->event_id == HTTP_EVENT_DISCONNECTED &&
+               response != NULL && event->data != NULL) {
+        response->tls_error = esp_tls_get_and_clear_last_error(
+            (esp_tls_error_handle_t)event->data,
+            &response->mbedtls_error,
+            NULL
+        );
     }
 
     return ESP_OK;
@@ -305,6 +322,35 @@ static void publish_results(
     state_unlock();
 }
 
+static esp_err_t perform_http_request(
+    const char *url,
+    http_response_buffer_t *response,
+    int *http_status)
+{
+    esp_http_client_config_t config = {
+        .url = url,
+        .event_handler = http_event_handler,
+        .user_data = response,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = GEOCODING_HTTP_TIMEOUT,
+        .buffer_size = 1024,
+        .buffer_size_tx = 512,
+        .keep_alive_enable = false,
+        .addr_type = HTTP_ADDR_TYPE_INET,
+        .user_agent = "SmartTank-HMI/1.0",
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    const esp_err_t err = esp_http_client_perform(client);
+    *http_status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    return err;
+}
+
 static esp_err_t perform_search(
     const char *query,
     weather_location_t results[WEATHER_GEOCODING_MAX_RESULTS],
@@ -346,31 +392,41 @@ static esp_err_t perform_search(
 
     http_response_buffer_t response = {
         .data = response_data,
-        .length = 0U,
         .capacity = GEOCODING_RESPONSE_SIZE,
-        .overflow = false,
-    };
-    response.data[0] = '\0';
-
-    esp_http_client_config_t config = {
-        .url = url,
-        .event_handler = http_event_handler,
-        .user_data = &response,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = GEOCODING_HTTP_TIMEOUT,
-        .buffer_size = 1024,
-        .buffer_size_tx = 512,
-        .keep_alive_enable = true,
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        free(response_data);
-        return ESP_ERR_NO_MEM;
+    for (unsigned int attempt = 1U; attempt <= 2U; attempt++) {
+        response.length = 0U;
+        response.overflow = false;
+        response.tls_error = ESP_OK;
+        response.mbedtls_error = 0;
+        response.data[0] = '\0';
+        *http_status = 0;
+
+        err = perform_http_request(url, &response, http_status);
+        if (err == ESP_OK) {
+            break;
+        }
+
+        ESP_LOGW(
+            TAG,
+            "HTTPS attempt %u failed: %s (0x%X), TLS 0x%X, mbedTLS -0x%X, internal heap %u",
+            attempt,
+            esp_err_to_name(err),
+            (unsigned int)err,
+            (unsigned int)response.tls_error,
+            (unsigned int)(response.mbedtls_error < 0
+                ? -response.mbedtls_error
+                : response.mbedtls_error),
+            (unsigned int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+        );
+
+        if (err != ESP_ERR_HTTP_CONNECT || attempt >= 2U) {
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(GEOCODING_RETRY_DELAY_MS));
     }
-
-    err = esp_http_client_perform(client);
-    *http_status = esp_http_client_get_status_code(client);
 
     if (err == ESP_OK && response.overflow) {
         err = ESP_ERR_NO_MEM;
@@ -384,7 +440,6 @@ static esp_err_t perform_search(
         err = parse_locations(response.data, results, result_count);
     }
 
-    esp_http_client_cleanup(client);
     free(response_data);
     return err;
 }
