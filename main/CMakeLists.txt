@@ -29,6 +29,7 @@ idf_component_register(
         "screens/screen_alarms.c"
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
+        "screens/screen_info.c"
         "screens/screen_tank_detail.c"
         "screens/screen_tank_calibration.c"
         "screens/screen_service.c"
@@ -60,9 +61,12 @@ idf_component_register(
         "widgets"
 
     PRIV_REQUIRES
+        app_update
         driver
         esp-tls
+        esp_app_format
         esp_event
+        esp_flash
         esp_http_client
         esp_netif
         esp_wifi
