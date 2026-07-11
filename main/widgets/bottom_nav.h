@@ -27,6 +27,8 @@ struct bottom_nav {
     lv_obj_t *buttons[NAV_ITEM_COUNT];
     lv_obj_t *icons[NAV_ITEM_COUNT];
     lv_obj_t *labels[NAV_ITEM_COUNT];
+    lv_obj_t *alarm_badge;
+    lv_timer_t *alarm_badge_timer;
     bottom_nav_button_ctx_t contexts[NAV_ITEM_COUNT];
     bottom_nav_page_t active_page;
     bottom_nav_change_cb_t change_cb;
