@@ -48,6 +48,7 @@ idf_component_register(
         "widgets/weather_widget.c"
         "widgets/weather_widget_compat.c"
         "widgets/bottom_nav.c"
+        "widgets/top_status_bar.c"
 
     INCLUDE_DIRS
         "."
