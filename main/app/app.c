@@ -14,6 +14,7 @@
 #include "settings_storage.h"
 #include "weather_geocoding.h"
 #include "weather_service.h"
+#include "well_settings.h"
 #include "wifi_service.h"
 #include "lvgl_port.h"
 #include "panel_icons.h"
@@ -30,6 +31,7 @@ void app_start(void)
 {
     ESP_ERROR_CHECK(app_model_init());
     ESP_ERROR_CHECK(settings_storage_init());
+    ESP_ERROR_CHECK(well_settings_init());
 
     tank_channel_config_t stored_config;
     const esp_err_t load_result =
