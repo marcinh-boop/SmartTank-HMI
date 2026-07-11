@@ -1,6 +1,8 @@
 #include "bottom_nav.h"
 #include "screen_service.h"
 #include "screen_settings.h"
+#include "screen_settings_weather.h"
+#include "screen_weather_location.h"
 #include "theme.h"
 
 #include <string.h>
@@ -88,12 +90,15 @@ static void nav_button_event_cb(lv_event_t *event)
 
     if (page == NAV_SETTINGS) {
         screen_service_hide();
+        screen_weather_location_hide();
         screen_settings_open(lv_scr_act());
+        screen_settings_weather_attach(lv_scr_act());
         bottom_nav_set_active(nav, page);
         return;
     }
 
     if (page == NAV_SERVICE) {
+        screen_weather_location_hide();
         screen_settings_hide();
         screen_service_open(lv_scr_act());
         bottom_nav_set_active(nav, page);
@@ -104,6 +109,7 @@ static void nav_button_event_cb(lv_event_t *event)
         return;
     }
 
+    screen_weather_location_hide();
     screen_service_hide();
     screen_settings_hide();
     bottom_nav_set_active(nav, page);
