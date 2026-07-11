@@ -6,6 +6,7 @@
 
 #include "app_model.h"
 #include "measurement_history.h"
+#include "well_settings.h"
 
 static const char *TAG = "data_sim";
 static TaskHandle_t s_simulator_task;
@@ -45,14 +46,23 @@ static void publish_simulated_state(uint32_t tick)
         tank.health = SENSOR_HEALTH_WARNING;
     }
 
-    const float well_column_m = 2.40f + (float)triangle_wave(tick / 3U, 12U) * 0.05f;
+    well_settings_t well_config;
+    well_settings_get(&well_config);
+
+    const int well_percent = 55 + (int)triangle_wave(tick / 3U, 20U);
     well_measurement_t well = {
-        .water_column_m = well_column_m,
-        .well_depth_m = 4.00f,
+        .water_column_m = well_config.well_depth_m * (float)well_percent / 100.0f,
+        .well_depth_m = well_config.well_depth_m,
         .valid = true,
         .health = SENSOR_HEALTH_OK,
         .sample_counter = tick + 1U,
     };
+
+    if (well_percent <= well_config.critical_percent) {
+        well.health = SENSOR_HEALTH_CRITICAL;
+    } else if (well_percent <= well_config.warning_percent) {
+        well.health = SENSOR_HEALTH_WARNING;
+    }
 
     system_status_t system = {
         .simulation_active = true,
