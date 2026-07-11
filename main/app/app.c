@@ -11,6 +11,7 @@
 #include "ntp_service.h"
 #include "settings_storage.h"
 #include "weather_geocoding.h"
+#include "weather_service.h"
 #include "wifi_service.h"
 #include "lvgl_port.h"
 #include "panel_icons.h"
@@ -93,6 +94,15 @@ void app_start(void)
             TAG,
             "Weather geocoding unavailable: %s",
             esp_err_to_name(geocoding_result)
+        );
+    }
+
+    const esp_err_t weather_result = weather_service_start();
+    if (weather_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Weather service unavailable: %s",
+            esp_err_to_name(weather_result)
         );
     }
 
