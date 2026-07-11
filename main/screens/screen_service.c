@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-#include "app_model.h"
+#include "analog_module_service.h"
 #include "clock_service.h"
 #include "modbus_rtu_client.h"
 #include "ntp_service.h"
@@ -17,26 +17,34 @@
 #define SERVICE_PANEL   lv_color_hex(0x0B1825)
 #define SERVICE_BORDER  lv_color_hex(0x24384A)
 
+#define SERVICE_FRAME_PREVIEW_BYTES 8U
+
 static lv_obj_t *s_root;
 static lv_timer_t *s_refresh_timer;
 
 static lv_obj_t *s_rs485_status;
+static lv_obj_t *s_baud_value;
+static lv_obj_t *s_hardware_value;
+
 static lv_obj_t *s_modbus_status;
 static lv_obj_t *s_crc_status;
 static lv_obj_t *s_requests_value;
 static lv_obj_t *s_responses_value;
 static lv_obj_t *s_timeouts_value;
 static lv_obj_t *s_crc_errors_value;
-static lv_obj_t *s_exceptions_value;
 static lv_obj_t *s_last_error_value;
-static lv_obj_t *s_source_value;
-static lv_obj_t *s_uptime_value;
-static lv_obj_t *s_module_value;
-static lv_obj_t *s_rtc_status_value;
-static lv_obj_t *s_rtc_time_value;
+static lv_obj_t *s_last_tx_value;
+static lv_obj_t *s_last_rx_value;
+
+static lv_obj_t *s_module_state_value;
+static lv_obj_t *s_driver_test_value;
+static lv_obj_t *s_slave_baud_value;
+static lv_obj_t *s_ai1_raw_value;
+static lv_obj_t *s_ai1_ma_value;
+static lv_obj_t *s_ai2_raw_value;
+static lv_obj_t *s_rtc_value;
 static lv_obj_t *s_wifi_value;
 static lv_obj_t *s_ntp_value;
-static lv_obj_t *s_time_source_value;
 
 static lv_obj_t *create_label(
     lv_obj_t *parent,
@@ -86,7 +94,7 @@ static lv_obj_t *create_value_row(
         &lv_font_montserrat_12
     );
 
-    return create_label(
+    lv_obj_t *label = create_label(
         parent,
         value,
         ST_COLOR_TEXT,
@@ -95,6 +103,10 @@ static lv_obj_t *create_value_row(
         y,
         &lv_font_montserrat_12
     );
+    lv_obj_set_width(label, 135);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    return label;
 }
 
 static void set_u32(lv_obj_t *label, uint32_t value)
@@ -104,175 +116,97 @@ static void set_u32(lv_obj_t *label, uint32_t value)
     lv_label_set_text(label, buffer);
 }
 
-static void refresh_rtc_status(void)
+static void format_frame_preview(
+    const uint8_t *frame,
+    size_t frame_len,
+    char *buffer,
+    size_t buffer_size)
 {
-    clock_service_snapshot_t clock;
-    clock_service_get_snapshot(&clock);
+    if (buffer == NULL || buffer_size == 0U) {
+        return;
+    }
+
+    if (frame == NULL || frame_len == 0U) {
+        snprintf(buffer, buffer_size, "--");
+        return;
+    }
+
+    const size_t shown = frame_len < SERVICE_FRAME_PREVIEW_BYTES
+        ? frame_len
+        : SERVICE_FRAME_PREVIEW_BYTES;
+    size_t offset = 0U;
+
+    for (size_t index = 0U; index < shown; index++) {
+        const int written = snprintf(
+            buffer + offset,
+            buffer_size - offset,
+            index == 0U ? "%02X" : " %02X",
+            frame[index]
+        );
+        if (written < 0 || (size_t)written >= buffer_size - offset) {
+            break;
+        }
+        offset += (size_t)written;
+    }
+
+    if (frame_len > shown && offset + 4U < buffer_size) {
+        snprintf(buffer + offset, buffer_size - offset, " ...");
+    }
+}
+
+static void refresh_rs485_status(
+    const analog_module_service_snapshot_t *module)
+{
+    const bool ready = rs485_port_is_initialized();
 
     lv_label_set_text(
-        s_time_source_value,
-        clock_service_source_name(clock.source)
+        s_rs485_status,
+        ready ? "AKTYWNY" : "GOTOWY / OFF"
     );
     lv_obj_set_style_text_color(
-        s_time_source_value,
-        clock.source == CLOCK_TIME_SOURCE_NONE ? SERVICE_YELLOW : SERVICE_GREEN,
+        s_rs485_status,
+        ready ? SERVICE_GREEN : SERVICE_YELLOW,
         LV_PART_MAIN
     );
-
-    if (!clock.started) {
-        lv_label_set_text(s_rtc_status_value, "START");
-        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_YELLOW, LV_PART_MAIN);
-        lv_label_set_text(s_rtc_time_value, "--");
-        return;
-    }
-
-    if (!clock.rtc_present) {
-        lv_label_set_text(s_rtc_status_value, "BLAD I2C");
-        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_RED, LV_PART_MAIN);
-        lv_label_set_text(s_rtc_time_value, "--");
-        return;
-    }
-
-    if (!clock.time_valid) {
-        lv_label_set_text(
-            s_rtc_status_value,
-            clock.oscillator_stopped ? "CZAS NIEWAZNY" : "DO USTAWIENIA"
-        );
-        lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_YELLOW, LV_PART_MAIN);
-        lv_label_set_text(s_rtc_time_value, "--");
-        return;
-    }
-
-    lv_label_set_text(s_rtc_status_value, "OK");
-    lv_obj_set_style_text_color(s_rtc_status_value, SERVICE_GREEN, LV_PART_MAIN);
 
     char buffer[32];
     snprintf(
         buffer,
         sizeof(buffer),
-        "%02u.%02u.%04u %02u:%02u",
-        (unsigned int)clock.datetime.day,
-        (unsigned int)clock.datetime.month,
-        (unsigned int)clock.datetime.year,
-        (unsigned int)clock.datetime.hour,
-        (unsigned int)clock.datetime.minute
+        "%lu 8N1",
+        (unsigned long)module->baud_rate
     );
-    lv_label_set_text(s_rtc_time_value, buffer);
-}
-
-static void refresh_wifi_status(void)
-{
-    wifi_service_snapshot_t wifi;
-    wifi_service_get_snapshot(&wifi);
-
-    if (!wifi.started) {
-        lv_label_set_text(s_wifi_value, "NIEURUCHOMIONE");
-        lv_obj_set_style_text_color(s_wifi_value, SERVICE_YELLOW, LV_PART_MAIN);
-        return;
-    }
-
-    if (!wifi.radio_ready || wifi.last_error != ESP_OK) {
-        lv_label_set_text(s_wifi_value, "BLAD");
-        lv_obj_set_style_text_color(s_wifi_value, SERVICE_RED, LV_PART_MAIN);
-        return;
-    }
-
-    if (wifi.scanning) {
-        lv_label_set_text(s_wifi_value, "SKANOWANIE");
-        lv_obj_set_style_text_color(s_wifi_value, SERVICE_BLUE, LV_PART_MAIN);
-        return;
-    }
-
-    if (wifi.connected) {
-        lv_label_set_text(s_wifi_value, "ONLINE");
-        lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
-        return;
-    }
-
-    lv_label_set_text(s_wifi_value, "RADIO OK");
-    lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
-}
-
-static void refresh_ntp_status(void)
-{
-    ntp_service_snapshot_t ntp;
-    ntp_service_get_snapshot(&ntp);
-
-    if (!ntp.started) {
-        lv_label_set_text(s_ntp_value, "OFF");
-        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
-        return;
-    }
-
-    if (ntp.last_error != ESP_OK) {
-        lv_label_set_text(s_ntp_value, "BLAD");
-        lv_obj_set_style_text_color(s_ntp_value, SERVICE_RED, LV_PART_MAIN);
-        return;
-    }
-
-    if (ntp.synchronized) {
-        lv_label_set_text(
-            s_ntp_value,
-            ntp.rtc_updated ? "OK" : "OK / RTC ERR"
-        );
-        lv_obj_set_style_text_color(
-            s_ntp_value,
-            ntp.rtc_updated ? SERVICE_GREEN : SERVICE_YELLOW,
-            LV_PART_MAIN
-        );
-        return;
-    }
-
-    if (ntp.waiting_for_wifi) {
-        lv_label_set_text(s_ntp_value, "CZEKA WIFI");
-        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
-        return;
-    }
-
-    if (ntp.synchronizing || ntp.initialized) {
-        lv_label_set_text(s_ntp_value, "SYNCHRONIZACJA");
-        lv_obj_set_style_text_color(s_ntp_value, SERVICE_BLUE, LV_PART_MAIN);
-        return;
-    }
-
-    lv_label_set_text(s_ntp_value, "START");
-    lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
-}
-
-static void refresh_service(void)
-{
-    if (s_root == NULL) {
-        return;
-    }
-
-    const bool rs485_ready = rs485_port_is_initialized();
-    const bool modbus_ready = modbus_rtu_client_is_initialized();
+    lv_label_set_text(s_baud_value, buffer);
 
     lv_label_set_text(
-        s_rs485_status,
-        rs485_ready ? "AKTYWNY" : "GOTOWY / NIEAKTYWNY"
+        s_hardware_value,
+        module->hardware_enabled ? "WLACZONY" : "WYLACZONY"
     );
     lv_obj_set_style_text_color(
-        s_rs485_status,
-        rs485_ready ? SERVICE_GREEN : SERVICE_YELLOW,
+        s_hardware_value,
+        module->hardware_enabled ? SERVICE_GREEN : SERVICE_YELLOW,
         LV_PART_MAIN
     );
+}
 
+static void refresh_modbus_status(void)
+{
+    const bool ready = modbus_rtu_client_is_initialized();
     lv_label_set_text(
         s_modbus_status,
-        modbus_ready ? "AKTYWNY" : "OCZEKUJE NA MODUL"
+        ready ? "AKTYWNY" : "TESTY LOKALNE"
     );
     lv_obj_set_style_text_color(
         s_modbus_status,
-        modbus_ready ? SERVICE_GREEN : SERVICE_YELLOW,
+        ready ? SERVICE_GREEN : SERVICE_BLUE,
         LV_PART_MAIN
     );
 
     static const uint8_t crc_test_frame[] = {
-        0x01U, 0x03U, 0x00U, 0x00U, 0x00U, 0x0AU
+        0x01U, 0x04U, 0x00U, 0x00U, 0x00U, 0x08U
     };
     const bool crc_ok =
-        modbus_rtu_crc16(crc_test_frame, sizeof(crc_test_frame)) == 0xCDC5U;
+        modbus_rtu_crc16(crc_test_frame, sizeof(crc_test_frame)) == 0xCCF1U;
 
     lv_label_set_text(s_crc_status, crc_ok ? "OK" : "BLAD");
     lv_obj_set_style_text_color(
@@ -288,7 +222,6 @@ static void refresh_service(void)
     set_u32(s_responses_value, diagnostics.responses);
     set_u32(s_timeouts_value, diagnostics.timeouts);
     set_u32(s_crc_errors_value, diagnostics.crc_errors);
-    set_u32(s_exceptions_value, diagnostics.exceptions);
 
     if (diagnostics.last_error == ESP_OK) {
         lv_label_set_text(s_last_error_value, "OK");
@@ -298,19 +231,192 @@ static void refresh_service(void)
         lv_label_set_text(s_last_error_value, buffer);
     }
 
-    smarttank_state_t state;
-    app_model_get_snapshot(&state);
+    char frame_buffer[48];
+    format_frame_preview(
+        diagnostics.last_request,
+        diagnostics.last_request_len,
+        frame_buffer,
+        sizeof(frame_buffer)
+    );
+    lv_label_set_text(s_last_tx_value, frame_buffer);
+
+    format_frame_preview(
+        diagnostics.last_response,
+        diagnostics.last_response_len,
+        frame_buffer,
+        sizeof(frame_buffer)
+    );
+    lv_label_set_text(s_last_rx_value, frame_buffer);
+}
+
+static void refresh_module_status(
+    const analog_module_service_snapshot_t *module)
+{
+    lv_label_set_text(
+        s_module_state_value,
+        analog_module_service_state_name(module->state)
+    );
+
+    lv_color_t state_color = SERVICE_YELLOW;
+    if (module->state == ANALOG_MODULE_STATE_ONLINE) {
+        state_color = SERVICE_GREEN;
+    } else if (module->state == ANALOG_MODULE_STATE_ERROR) {
+        state_color = SERVICE_RED;
+    } else if (module->state == ANALOG_MODULE_STATE_STARTING) {
+        state_color = SERVICE_BLUE;
+    }
+    lv_obj_set_style_text_color(
+        s_module_state_value,
+        state_color,
+        LV_PART_MAIN
+    );
 
     lv_label_set_text(
-        s_source_value,
-        state.system.simulation_active ? "SYMULACJA" : "MODBUS"
+        s_driver_test_value,
+        module->self_test_ok ? "OK" : "BLAD"
     );
-    set_u32(s_uptime_value, state.system.uptime_seconds);
-    lv_label_set_text(
-        s_module_value,
-        state.system.analog_module_connected ? "ONLINE" : "NIEPODLACZONY"
+    lv_obj_set_style_text_color(
+        s_driver_test_value,
+        module->self_test_ok ? SERVICE_GREEN : SERVICE_RED,
+        LV_PART_MAIN
     );
 
+    char buffer[48];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%u / %lu",
+        (unsigned int)module->slave_address,
+        (unsigned long)module->baud_rate
+    );
+    lv_label_set_text(s_slave_baud_value, buffer);
+
+    if (!module->module.inputs_valid) {
+        lv_label_set_text(s_ai1_raw_value, "--");
+        lv_label_set_text(s_ai1_ma_value, "--");
+        lv_label_set_text(s_ai2_raw_value, "--");
+        return;
+    }
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%u uA",
+        (unsigned int)module->module.input_raw_ua[0]
+    );
+    lv_label_set_text(s_ai1_raw_value, buffer);
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%.3f mA",
+        module->module.input_ma[0]
+    );
+    lv_label_set_text(s_ai1_ma_value, buffer);
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%u uA",
+        (unsigned int)module->module.input_raw_ua[1]
+    );
+    lv_label_set_text(s_ai2_raw_value, buffer);
+}
+
+static void refresh_rtc_status(void)
+{
+    clock_service_snapshot_t clock;
+    clock_service_get_snapshot(&clock);
+
+    if (!clock.started) {
+        lv_label_set_text(s_rtc_value, "START");
+        lv_obj_set_style_text_color(s_rtc_value, SERVICE_YELLOW, LV_PART_MAIN);
+        return;
+    }
+
+    if (!clock.rtc_present) {
+        lv_label_set_text(s_rtc_value, "BLAD I2C");
+        lv_obj_set_style_text_color(s_rtc_value, SERVICE_RED, LV_PART_MAIN);
+        return;
+    }
+
+    if (!clock.time_valid) {
+        lv_label_set_text(s_rtc_value, "CZAS NIEWAZNY");
+        lv_obj_set_style_text_color(s_rtc_value, SERVICE_YELLOW, LV_PART_MAIN);
+        return;
+    }
+
+    char buffer[32];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "OK %02u:%02u",
+        (unsigned int)clock.datetime.hour,
+        (unsigned int)clock.datetime.minute
+    );
+    lv_label_set_text(s_rtc_value, buffer);
+    lv_obj_set_style_text_color(s_rtc_value, SERVICE_GREEN, LV_PART_MAIN);
+}
+
+static void refresh_wifi_status(void)
+{
+    wifi_service_snapshot_t wifi;
+    wifi_service_get_snapshot(&wifi);
+
+    if (!wifi.started || !wifi.radio_ready || wifi.last_error != ESP_OK) {
+        lv_label_set_text(s_wifi_value, "BLAD");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_RED, LV_PART_MAIN);
+    } else if (wifi.connected) {
+        lv_label_set_text(s_wifi_value, "ONLINE");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_GREEN, LV_PART_MAIN);
+    } else if (wifi.scanning) {
+        lv_label_set_text(s_wifi_value, "SKANOWANIE");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_BLUE, LV_PART_MAIN);
+    } else {
+        lv_label_set_text(s_wifi_value, "RADIO OK");
+        lv_obj_set_style_text_color(s_wifi_value, SERVICE_YELLOW, LV_PART_MAIN);
+    }
+}
+
+static void refresh_ntp_status(void)
+{
+    ntp_service_snapshot_t ntp;
+    ntp_service_get_snapshot(&ntp);
+
+    if (!ntp.started) {
+        lv_label_set_text(s_ntp_value, "OFF");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
+    } else if (ntp.last_error != ESP_OK) {
+        lv_label_set_text(s_ntp_value, "BLAD");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_RED, LV_PART_MAIN);
+    } else if (ntp.synchronized) {
+        lv_label_set_text(s_ntp_value, ntp.rtc_updated ? "OK" : "OK / RTC ERR");
+        lv_obj_set_style_text_color(
+            s_ntp_value,
+            ntp.rtc_updated ? SERVICE_GREEN : SERVICE_YELLOW,
+            LV_PART_MAIN
+        );
+    } else if (ntp.waiting_for_wifi) {
+        lv_label_set_text(s_ntp_value, "CZEKA WIFI");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_YELLOW, LV_PART_MAIN);
+    } else {
+        lv_label_set_text(s_ntp_value, "SYNCHRONIZACJA");
+        lv_obj_set_style_text_color(s_ntp_value, SERVICE_BLUE, LV_PART_MAIN);
+    }
+}
+
+static void refresh_service(void)
+{
+    if (s_root == NULL) {
+        return;
+    }
+
+    analog_module_service_snapshot_t module;
+    analog_module_service_get_snapshot(&module);
+
+    refresh_rs485_status(&module);
+    refresh_modbus_status();
+    refresh_module_status(&module);
     refresh_rtc_status();
     refresh_wifi_status();
     refresh_ntp_status();
@@ -364,7 +470,7 @@ static void build_screen(lv_obj_t *parent_screen)
     );
     create_label(
         top,
-        "RS485 / RTC / NTP",
+        "RS485 / MODBUS / 8CH",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_RIGHT_MID,
         -12,
@@ -388,8 +494,8 @@ static void build_screen(lv_obj_t *parent_screen)
     create_value_row(rs485_panel, "RX", "GPIO43", 130);
     create_value_row(rs485_panel, "Kierunek", "AUTO", 162);
     create_value_row(rs485_panel, "Transceiver", "SP3485", 194);
-    create_value_row(rs485_panel, "Baud", "DO USTALENIA", 226);
-    create_value_row(rs485_panel, "Przewody", "A / B / GND", 258);
+    s_baud_value = create_value_row(rs485_panel, "Parametry", "9600 8N1", 226);
+    s_hardware_value = create_value_row(rs485_panel, "Odczyt HW", "--", 258);
 
     lv_obj_t *modbus_panel = create_panel(s_root, 278, 245);
     create_label(
@@ -402,33 +508,35 @@ static void build_screen(lv_obj_t *parent_screen)
         &lv_font_montserrat_14
     );
     s_modbus_status = create_value_row(modbus_panel, "Klient", "--", 34);
-    s_crc_status = create_value_row(modbus_panel, "CRC16 test", "--", 66);
-    create_value_row(modbus_panel, "Funkcje", "03 / 04", 98);
+    s_crc_status = create_value_row(modbus_panel, "CRC ramek", "--", 66);
+    create_value_row(modbus_panel, "Funkcje", "03 / 04 / 06", 98);
     s_requests_value = create_value_row(modbus_panel, "Zapytania", "0", 130);
     s_responses_value = create_value_row(modbus_panel, "Odpowiedzi", "0", 162);
     s_timeouts_value = create_value_row(modbus_panel, "Timeouty", "0", 194);
     s_crc_errors_value = create_value_row(modbus_panel, "Bledy CRC", "0", 226);
-    s_exceptions_value = create_value_row(modbus_panel, "Wyjatki", "0", 258);
-    s_last_error_value = create_value_row(modbus_panel, "Ostatni blad", "OK", 290);
+    s_last_error_value = create_value_row(modbus_panel, "Ostatni blad", "OK", 258);
+    s_last_tx_value = create_value_row(modbus_panel, "TX", "--", 274);
+    s_last_rx_value = create_value_row(modbus_panel, "RX", "--", 290);
 
-    lv_obj_t *status_panel = create_panel(s_root, 536, 244);
+    lv_obj_t *module_panel = create_panel(s_root, 536, 244);
     create_label(
-        status_panel,
-        "STATUS SYSTEMU",
+        module_panel,
+        "WAVESHARE 8CH",
         SERVICE_YELLOW,
         LV_ALIGN_TOP_LEFT,
         0,
         0,
         &lv_font_montserrat_14
     );
-    s_source_value = create_value_row(status_panel, "Zrodlo danych", "--", 34);
-    s_uptime_value = create_value_row(status_panel, "Uptime [s]", "0", 66);
-    s_module_value = create_value_row(status_panel, "Modul 8CH", "--", 98);
-    s_rtc_status_value = create_value_row(status_panel, "RTC PCF85063", "--", 130);
-    s_rtc_time_value = create_value_row(status_panel, "Czas RTC", "--", 162);
-    s_wifi_value = create_value_row(status_panel, "Wi-Fi", "--", 194);
-    s_ntp_value = create_value_row(status_panel, "NTP", "--", 226);
-    s_time_source_value = create_value_row(status_panel, "Zrodlo czasu", "--", 258);
+    s_module_state_value = create_value_row(module_panel, "Stan", "--", 34);
+    s_driver_test_value = create_value_row(module_panel, "Test sterownika", "--", 66);
+    s_slave_baud_value = create_value_row(module_panel, "Slave / baud", "1 / 9600", 98);
+    s_ai1_raw_value = create_value_row(module_panel, "AI1 surowe", "--", 130);
+    s_ai1_ma_value = create_value_row(module_panel, "AI1 prad", "--", 162);
+    s_ai2_raw_value = create_value_row(module_panel, "AI2 surowe", "--", 194);
+    s_rtc_value = create_value_row(module_panel, "RTC", "--", 226);
+    s_wifi_value = create_value_row(module_panel, "Wi-Fi", "--", 258);
+    s_ntp_value = create_value_row(module_panel, "NTP", "--", 290);
 
     s_refresh_timer = lv_timer_create(refresh_timer_cb, 500, NULL);
     refresh_service();
