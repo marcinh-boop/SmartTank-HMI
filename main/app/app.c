@@ -19,6 +19,7 @@
 #include "panel_icons.h"
 #include "screen_dashboard.h"
 #include "top_status_bar.h"
+#include "well_detail_integration.h"
 
 static const char *TAG = "app";
 
@@ -140,6 +141,10 @@ void app_start(void)
 
         if (!top_status_bar_attach(lv_scr_act())) {
             ESP_LOGW(TAG, "Unable to attach top status bar");
+        }
+
+        if (!well_detail_integration_attach(lv_scr_act())) {
+            ESP_LOGW(TAG, "Unable to attach well detail screen");
         }
 
         lvgl_port_unlock();
