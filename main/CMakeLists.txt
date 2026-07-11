@@ -24,6 +24,7 @@ idf_component_register(
         "services/weather_geocoding.c"
         "services/weather_location_storage.c"
         "services/weather_service.c"
+        "services/well_settings.c"
         "services/wifi_service.c"
 
         "screens/screen_alarms.c"
@@ -33,6 +34,7 @@ idf_component_register(
         "screens/screen_tank_detail.c"
         "screens/screen_tank_calibration.c"
         "screens/screen_well_detail.c"
+        "screens/screen_well_calibration.c"
         "screens/well_detail_integration.c"
         "screens/screen_service.c"
         "screens/screen_settings.c"
