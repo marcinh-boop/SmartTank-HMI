@@ -29,14 +29,186 @@ static const char *NAV_NAMES[NAV_ITEM_COUNT] = {
     "Informacje"
 };
 
-static const char *NAV_ICONS[NAV_ITEM_COUNT] = {
+static const char *NAV_SYMBOLS[NAV_ITEM_COUNT] = {
     LV_SYMBOL_HOME,
-    LV_SYMBOL_LIST,
+    NULL,
     LV_SYMBOL_BELL,
     LV_SYMBOL_SETTINGS,
-    LV_SYMBOL_EYE_OPEN,
-    LV_SYMBOL_FILE
+    NULL,
+    NULL
 };
+
+static const lv_point_t SERVICE_SHAFT_POINTS[] = {
+    {5, 17},
+    {16, 6},
+};
+
+static const lv_point_t SERVICE_JAW_TOP_POINTS[] = {
+    {15, 7},
+    {21, 1},
+};
+
+static const lv_point_t SERVICE_JAW_BOTTOM_POINTS[] = {
+    {15, 7},
+    {22, 10},
+};
+
+static void set_icon_color_recursive(lv_obj_t *obj, lv_color_t color)
+{
+    if (obj == NULL) {
+        return;
+    }
+
+    lv_obj_set_style_text_color(obj, color, LV_PART_MAIN);
+    lv_obj_set_style_line_color(obj, color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(obj, color, LV_PART_MAIN);
+    lv_obj_set_style_border_color(obj, color, LV_PART_MAIN);
+
+    const uint32_t child_count = lv_obj_get_child_cnt(obj);
+    for (uint32_t index = 0U; index < child_count; index++) {
+        set_icon_color_recursive(
+            lv_obj_get_child(obj, (int32_t)index),
+            color
+        );
+    }
+}
+
+static lv_obj_t *create_icon_root(lv_obj_t *parent)
+{
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, 26, 22);
+    lv_obj_align(root, LV_ALIGN_TOP_MID, 0, -1);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    return root;
+}
+
+static lv_obj_t *create_shape(
+    lv_obj_t *parent,
+    int x,
+    int y,
+    int width,
+    int height)
+{
+    lv_obj_t *shape = lv_obj_create(parent);
+    lv_obj_remove_style_all(shape);
+    lv_obj_set_size(shape, width, height);
+    lv_obj_align(shape, LV_ALIGN_TOP_LEFT, x, y);
+    lv_obj_set_style_bg_color(shape, NAV_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(shape, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(shape, 1, LV_PART_MAIN);
+    lv_obj_clear_flag(shape, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(shape, LV_OBJ_FLAG_SCROLLABLE);
+    return shape;
+}
+
+static lv_obj_t *create_history_icon(lv_obj_t *parent)
+{
+    lv_obj_t *root = create_icon_root(parent);
+
+    create_shape(root, 2, 2, 2, 17);
+    create_shape(root, 2, 17, 21, 2);
+    create_shape(root, 7, 12, 3, 5);
+    create_shape(root, 12, 8, 3, 9);
+    create_shape(root, 17, 4, 3, 13);
+
+    return root;
+}
+
+static lv_obj_t *create_service_line(
+    lv_obj_t *parent,
+    const lv_point_t *points,
+    uint16_t point_count,
+    int width)
+{
+    lv_obj_t *line = lv_line_create(parent);
+    lv_line_set_points(line, points, point_count);
+    lv_obj_set_style_line_color(line, NAV_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_line_width(line, width, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
+    lv_obj_clear_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    return line;
+}
+
+static lv_obj_t *create_service_icon(lv_obj_t *parent)
+{
+    lv_obj_t *root = create_icon_root(parent);
+
+    create_service_line(
+        root,
+        SERVICE_SHAFT_POINTS,
+        sizeof(SERVICE_SHAFT_POINTS) / sizeof(SERVICE_SHAFT_POINTS[0]),
+        4
+    );
+    create_service_line(
+        root,
+        SERVICE_JAW_TOP_POINTS,
+        sizeof(SERVICE_JAW_TOP_POINTS) / sizeof(SERVICE_JAW_TOP_POINTS[0]),
+        4
+    );
+    create_service_line(
+        root,
+        SERVICE_JAW_BOTTOM_POINTS,
+        sizeof(SERVICE_JAW_BOTTOM_POINTS) / sizeof(SERVICE_JAW_BOTTOM_POINTS[0]),
+        4
+    );
+
+    lv_obj_t *ring = lv_obj_create(root);
+    lv_obj_remove_style_all(ring);
+    lv_obj_set_size(ring, 8, 8);
+    lv_obj_align(ring, LV_ALIGN_TOP_LEFT, 1, 13);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ring, NAV_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+
+    return root;
+}
+
+static lv_obj_t *create_info_icon(lv_obj_t *parent)
+{
+    lv_obj_t *root = create_icon_root(parent);
+    lv_obj_set_size(root, 22, 22);
+    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(root, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(root, NAV_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_radius(root, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+
+    lv_obj_t *label = lv_label_create(root);
+    lv_label_set_text(label, "i");
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, NAV_TEXT, LV_PART_MAIN);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 1);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
+
+    return root;
+}
+
+static lv_obj_t *create_nav_icon(
+    lv_obj_t *parent,
+    bottom_nav_page_t page)
+{
+    if (page == NAV_HISTORY) {
+        return create_history_icon(parent);
+    }
+
+    if (page == NAV_SERVICE) {
+        return create_service_icon(parent);
+    }
+
+    if (page == NAV_INFO) {
+        return create_info_icon(parent);
+    }
+
+    lv_obj_t *icon = lv_label_create(parent);
+    lv_label_set_text(icon, NAV_SYMBOLS[page]);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, -1);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    return icon;
+}
 
 static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
 {
@@ -63,7 +235,7 @@ static void apply_button_style(bottom_nav_t *nav, bottom_nav_page_t page)
     lv_obj_set_style_translate_x(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_translate_y(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
 
-    lv_obj_set_style_text_color(icon, icon_color, LV_PART_MAIN);
+    set_icon_color_recursive(icon, icon_color);
     lv_obj_set_style_text_color(label, text_color, LV_PART_MAIN);
 }
 
@@ -233,11 +405,10 @@ bottom_nav_t *bottom_nav_create(
         lv_obj_set_style_outline_width(nav->buttons[i], 0, LV_PART_MAIN);
         lv_obj_set_style_pad_all(nav->buttons[i], 0, LV_PART_MAIN);
 
-        nav->icons[i] = lv_label_create(nav->buttons[i]);
-        lv_label_set_text(nav->icons[i], NAV_ICONS[i]);
-        lv_obj_set_style_text_font(nav->icons[i], &lv_font_montserrat_20, LV_PART_MAIN);
-        lv_obj_align(nav->icons[i], LV_ALIGN_TOP_MID, 0, -1);
-        lv_obj_clear_flag(nav->icons[i], LV_OBJ_FLAG_CLICKABLE);
+        nav->icons[i] = create_nav_icon(
+            nav->buttons[i],
+            (bottom_nav_page_t)i
+        );
 
         nav->labels[i] = lv_label_create(nav->buttons[i]);
         lv_label_set_text(nav->labels[i], NAV_NAMES[i]);
