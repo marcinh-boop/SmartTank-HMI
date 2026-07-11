@@ -148,7 +148,7 @@ static void create_large_weather_icon(lv_obj_t *card)
     lv_obj_t *root = lv_obj_create(card);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, 82, 82);
-    lv_obj_align(root, LV_ALIGN_TOP_LEFT, -2, 52);
+    lv_obj_align(root, LV_ALIGN_TOP_LEFT, -2, 32);
     make_noninteractive(root);
 
     create_solid_shape(root, 25, 25, 43, 3, ICON_WEATHER_COLOR, LV_RADIUS_CIRCLE);
