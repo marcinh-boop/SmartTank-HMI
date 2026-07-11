@@ -1,7 +1,6 @@
 #include "screen_info.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "alarm_service.h"
 #include "analog_module_service.h"
@@ -21,6 +20,9 @@
 #define INFO_RED     lv_color_hex(0xFF4D4D)
 #define INFO_PANEL   lv_color_hex(0x0B1825)
 #define INFO_BORDER  lv_color_hex(0x24384A)
+
+#define INFO_AUTHOR_NAME  "Marcin Hoinca"
+#define INFO_AUTHOR_EMAIL "marcin.hoinca@gmail.com"
 
 static lv_obj_t *s_root;
 static lv_timer_t *s_refresh_timer;
@@ -232,6 +234,7 @@ static void refresh_dynamic_values(void)
         s_ip_value,
         wifi.connected && wifi.ip_address[0] != '\0' ? wifi.ip_address : "--"
     );
+
     if (wifi.connected) {
         snprintf(buffer, sizeof(buffer), "%d dBm", (int)wifi.rssi);
         lv_label_set_text(s_rssi_value, buffer);
@@ -294,33 +297,38 @@ static void build_firmware_panel(lv_obj_t *parent)
     }
     sha[16] = '\0';
 
-    char size_text[32];
-    format_bytes(
-        size_text,
-        sizeof(size_text),
-        running != NULL ? running->size : 0U
-    );
-
     create_value_row(panel, "Projekt", description->project_name, 34);
     create_value_row(panel, "Wersja", description->version, 64);
     create_value_row(panel, "Data", description->date, 94);
-    create_value_row(panel, "Godzina", description->time, 124);
-    create_value_row(panel, "ESP-IDF", description->idf_ver, 154);
-    create_value_row(panel, "SHA", sha, 184);
-    create_value_row(panel, "Partycja", running != NULL ? running->label : "--", 214);
-    create_value_row(panel, "Rozmiar slotu", size_text, 244);
+    create_value_row(panel, "ESP-IDF", description->idf_ver, 124);
+    create_value_row(panel, "SHA", sha, 154);
+    create_value_row(panel, "Partycja", running != NULL ? running->label : "--", 184);
 
     lv_obj_t *ota_value = create_value_row(
         panel,
         "OTA A/B",
         next != NULL ? "GOTOWE" : "BRAK SLOTU",
-        274
+        214
     );
     lv_obj_set_style_text_color(
         ota_value,
         next != NULL ? INFO_GREEN : INFO_RED,
         LV_PART_MAIN
     );
+
+    create_value_row(panel, "Autor", INFO_AUTHOR_NAME, 244);
+
+    lv_obj_t *email = create_label(
+        panel,
+        INFO_AUTHOR_EMAIL,
+        INFO_BLUE,
+        LV_ALIGN_TOP_MID,
+        0,
+        274,
+        &lv_font_montserrat_12
+    );
+    lv_obj_set_width(email, 220);
+    lv_obj_set_style_text_align(email, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 }
 
 static void build_hardware_panel(lv_obj_t *parent)
@@ -334,8 +342,10 @@ static void build_hardware_panel(lv_obj_t *parent)
     char revision[16];
     char flash[24];
     uint32_t flash_size = 0U;
+
     snprintf(cores, sizeof(cores), "%u", (unsigned int)chip.cores);
     snprintf(revision, sizeof(revision), "%u", (unsigned int)chip.revision);
+
     if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
         format_bytes(flash, sizeof(flash), flash_size);
     } else {
