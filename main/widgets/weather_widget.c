@@ -7,6 +7,8 @@
 #define WEATHER_YELLOW  lv_color_hex(0xFFC247)
 #define WEATHER_BLUE    lv_color_hex(0x2EA8FF)
 #define WEATHER_BORDER  lv_color_hex(0x665015)
+#define WEATHER_RED     lv_color_hex(0xFF5A5A)
+#define WEATHER_CLOUD   lv_color_hex(0xDCEAF4)
 
 static void create_separator(
     lv_obj_t *parent,
@@ -90,7 +92,7 @@ static void create_forecast_column(
     const char *temperature,
     int x)
 {
-    widget_label_create(
+    widget->forecast_day[index] = widget_label_create(
         parent,
         day,
         ST_COLOR_TEXT,
@@ -116,6 +118,43 @@ static void create_forecast_column(
         x - 5,
         283
     );
+}
+
+static const char *forecast_icon_for_code(int code)
+{
+    if (code == 0) {
+        return "S";
+    }
+    if (code >= 1 && code <= 3) {
+        return "C";
+    }
+    if (code == 45 || code == 48) {
+        return "M";
+    }
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+        return "R";
+    }
+    if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) {
+        return "N";
+    }
+    if (code >= 95 && code <= 99) {
+        return "B";
+    }
+    return "?";
+}
+
+static lv_color_t forecast_color_for_code(int code)
+{
+    if (code == 0) {
+        return WEATHER_YELLOW;
+    }
+    if (code >= 95 && code <= 99) {
+        return WEATHER_RED;
+    }
+    if ((code >= 51 && code <= 86) || code == 45 || code == 48) {
+        return WEATHER_BLUE;
+    }
+    return WEATHER_CLOUD;
 }
 
 weather_widget_t weather_widget_create(lv_obj_t *parent)
@@ -157,7 +196,7 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
 
     widget.temperature_label = widget_label_create(
         parent,
-        "18.6 C",
+        "--.- C",
         ST_COLOR_TEXT,
         LV_ALIGN_TOP_RIGHT,
         0,
@@ -166,12 +205,19 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
 
     widget.description_label = widget_label_create(
         parent,
-        "Zachmurzenie",
+        "Brak danych",
         ST_COLOR_TEXT_DIM,
         LV_ALIGN_TOP_RIGHT,
         0,
         101
     );
+    lv_obj_set_width(widget.description_label, 120);
+    lv_obj_set_style_text_align(
+        widget.description_label,
+        LV_TEXT_ALIGN_RIGHT,
+        LV_PART_MAIN
+    );
+    lv_label_set_long_mode(widget.description_label, LV_LABEL_LONG_DOT);
 
     create_separator(
         parent,
@@ -182,7 +228,7 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
     widget.rain_value = create_metric(
         parent,
         "%",
-        "10%",
+        "--",
         "Opad",
         0
     );
@@ -190,7 +236,7 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
     widget.wind_value = create_metric(
         parent,
         ">",
-        "12 km/h",
+        "--",
         "Wiatr",
         67
     );
@@ -198,7 +244,7 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
     widget.humidity_value = create_metric(
         parent,
         "H",
-        "62%",
+        "--",
         "Wilg.",
         145
     );
@@ -213,9 +259,9 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
         &widget,
         parent,
         0,
-        "SOB",
-        "R",
-        "19/11",
+        "---",
+        "-",
+        "--/--",
         0
     );
 
@@ -223,9 +269,9 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
         &widget,
         parent,
         1,
-        "NIE",
-        "S",
-        "21/12",
+        "---",
+        "-",
+        "--/--",
         54
     );
 
@@ -233,9 +279,9 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
         &widget,
         parent,
         2,
-        "PON",
-        "S",
-        "22/13",
+        "---",
+        "-",
+        "--/--",
         108
     );
 
@@ -243,81 +289,129 @@ weather_widget_t weather_widget_create(lv_obj_t *parent)
         &widget,
         parent,
         3,
-        "WTO",
-        "C",
-        "20/12",
+        "---",
+        "-",
+        "--/--",
         162
     );
 
     return widget;
 }
 
-void weather_widget_set_current(
+void weather_widget_set_data(
     weather_widget_t *widget,
-    float temperature_c,
-    int rain_percent,
-    float wind_kmh,
-    int humidity_percent,
-    const char *description)
+    const weather_measurement_t *measurement)
 {
-    if (widget == NULL) {
+    if (widget == NULL || measurement == NULL) {
         return;
     }
 
-    char buffer[48];
+    char buffer[64];
+
+    if (!measurement->valid) {
+        lv_label_set_text(widget->temperature_label, "--.- C");
+        lv_label_set_text(widget->description_label, "Ustaw lokalizacje");
+        lv_obj_set_style_text_color(
+            widget->description_label,
+            ST_COLOR_TEXT_DIM,
+            LV_PART_MAIN
+        );
+        lv_label_set_text(widget->rain_value, "--");
+        lv_label_set_text(widget->wind_value, "--");
+        lv_label_set_text(widget->humidity_value, "--");
+
+        for (uint8_t index = 0U; index < WEATHER_FORECAST_DAYS; index++) {
+            lv_label_set_text(widget->forecast_day[index], "---");
+            lv_label_set_text(widget->forecast_icon[index], "-");
+            lv_label_set_text(widget->forecast_temp[index], "--/--");
+            lv_obj_set_style_text_color(
+                widget->forecast_icon[index],
+                ST_COLOR_TEXT_DIM,
+                LV_PART_MAIN
+            );
+        }
+        return;
+    }
 
     snprintf(
         buffer,
         sizeof(buffer),
         "%.1f C",
-        temperature_c
+        measurement->temperature_c
     );
-
-    lv_label_set_text(
-        widget->temperature_label,
-        buffer
-    );
+    lv_label_set_text(widget->temperature_label, buffer);
 
     snprintf(
         buffer,
         sizeof(buffer),
         "%d%%",
-        rain_percent
+        measurement->rain_percent
     );
-
-    lv_label_set_text(
-        widget->rain_value,
-        buffer
-    );
+    lv_label_set_text(widget->rain_value, buffer);
 
     snprintf(
         buffer,
         sizeof(buffer),
         "%.0f km/h",
-        wind_kmh
+        measurement->wind_kmh
     );
-
-    lv_label_set_text(
-        widget->wind_value,
-        buffer
-    );
+    lv_label_set_text(widget->wind_value, buffer);
 
     snprintf(
         buffer,
         sizeof(buffer),
         "%d%%",
-        humidity_percent
+        measurement->humidity_percent
+    );
+    lv_label_set_text(widget->humidity_value, buffer);
+
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%s%s",
+        measurement->description,
+        measurement->stale ? " *" : ""
+    );
+    lv_label_set_text(widget->description_label, buffer);
+    lv_obj_set_style_text_color(
+        widget->description_label,
+        measurement->stale ? WEATHER_YELLOW : ST_COLOR_TEXT_DIM,
+        LV_PART_MAIN
     );
 
-    lv_label_set_text(
-        widget->humidity_value,
-        buffer
-    );
+    for (uint8_t index = 0U; index < WEATHER_FORECAST_DAYS; index++) {
+        if (index >= measurement->forecast_count ||
+            !measurement->forecast[index].valid) {
+            lv_label_set_text(widget->forecast_day[index], "---");
+            lv_label_set_text(widget->forecast_icon[index], "-");
+            lv_label_set_text(widget->forecast_temp[index], "--/--");
+            lv_obj_set_style_text_color(
+                widget->forecast_icon[index],
+                ST_COLOR_TEXT_DIM,
+                LV_PART_MAIN
+            );
+            continue;
+        }
 
-    if (description != NULL) {
+        const weather_forecast_day_t *forecast = &measurement->forecast[index];
+        lv_label_set_text(widget->forecast_day[index], forecast->day);
         lv_label_set_text(
-            widget->description_label,
-            description
+            widget->forecast_icon[index],
+            forecast_icon_for_code(forecast->weather_code)
         );
+        lv_obj_set_style_text_color(
+            widget->forecast_icon[index],
+            forecast_color_for_code(forecast->weather_code),
+            LV_PART_MAIN
+        );
+
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "%.0f/%.0f",
+            forecast->temperature_max_c,
+            forecast->temperature_min_c
+        );
+        lv_label_set_text(widget->forecast_temp[index], buffer);
     }
 }
