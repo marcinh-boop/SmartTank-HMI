@@ -75,7 +75,13 @@ static void set_icon_color_recursive(lv_obj_t *obj, lv_color_t color)
 
 static lv_obj_t *create_icon_root(lv_obj_t *parent)
 {
-    lv_obj_t *root = lv_obj_create(parent);
+    /*
+     * Korzeń niestandardowej ikony jest pustą etykietą. Górny pasek
+     * rozpoznaje przyciski nawigacji przez bezpieczne odczyty etykiet;
+     * zwykły lv_obj powodował wywołanie lv_label_get_text na złej klasie.
+     */
+    lv_obj_t *root = lv_label_create(parent);
+    lv_label_set_text(root, "");
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, 26, 22);
     lv_obj_align(root, LV_ALIGN_TOP_MID, 0, -1);
