@@ -20,6 +20,7 @@ idf_component_register(
         "services/settings_storage.c"
         "services/weather_geocoding.c"
         "services/weather_location_storage.c"
+        "services/weather_service.c"
         "services/wifi_service.c"
 
         "screens/screen_boot.c"
@@ -40,6 +41,7 @@ idf_component_register(
         "widgets/tank_widget.c"
         "widgets/well_widget.c"
         "widgets/weather_widget.c"
+        "widgets/weather_widget_compat.c"
         "widgets/bottom_nav.c"
 
     INCLUDE_DIRS
