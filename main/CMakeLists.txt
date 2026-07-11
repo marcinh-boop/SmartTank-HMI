@@ -15,6 +15,7 @@ idf_component_register(
 
         "protocol/modbus_rtu_client.c"
 
+        "services/alarm_service.c"
         "services/analog_module_service.c"
         "services/clock_service.c"
         "services/data_simulator.c"
@@ -25,6 +26,7 @@ idf_component_register(
         "services/weather_service.c"
         "services/wifi_service.c"
 
+        "screens/screen_alarms.c"
         "screens/screen_boot.c"
         "screens/screen_dashboard.c"
         "screens/screen_tank_detail.c"
