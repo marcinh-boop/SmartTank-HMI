@@ -23,3 +23,12 @@ void weather_widget_set_data(
     weather_widget_t *widget,
     const weather_measurement_t *measurement
 );
+
+void weather_widget_set_current(
+    weather_widget_t *widget,
+    float temperature_c,
+    int rain_percent,
+    float wind_kmh,
+    int humidity_percent,
+    const char *description
+);
