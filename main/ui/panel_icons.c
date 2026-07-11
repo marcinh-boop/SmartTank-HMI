@@ -1,15 +1,11 @@
 #include "panel_icons.h"
 
-#include <string.h>
-
 #include "theme.h"
 
 #define ICON_TANK_COLOR     lv_color_hex(0x39D12F)
 #define ICON_WELL_COLOR     lv_color_hex(0x2EA8FF)
 #define ICON_WEATHER_COLOR  lv_color_hex(0xFFC247)
 #define ICON_BADGE_BG       lv_color_hex(0x0A1A27)
-#define ICON_BADGE_BORDER   lv_color_hex(0x294256)
-#define ICON_CLOUD_COLOR    lv_color_hex(0xDCEAF4)
 
 static bool s_applied;
 
@@ -123,46 +119,6 @@ static void create_sun_badge(lv_obj_t *card)
     create_solid_shape(badge, 6, 3, 27, 16, ICON_WEATHER_COLOR, 1);
 }
 
-static void hide_weather_placeholders(lv_obj_t *card)
-{
-    const uint32_t child_count = lv_obj_get_child_cnt(card);
-
-    for (uint32_t i = 0U; i < child_count; i++) {
-        lv_obj_t *child = lv_obj_get_child(card, i);
-        if (child == NULL || !lv_obj_check_type(child, &lv_label_class)) {
-            continue;
-        }
-
-        const char *text = lv_label_get_text(child);
-        if (text != NULL &&
-            (strcmp(text, "SUN") == 0 || strcmp(text, "CLOUD") == 0)) {
-            lv_obj_add_flag(child, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-static void create_large_weather_icon(lv_obj_t *card)
-{
-    hide_weather_placeholders(card);
-
-    lv_obj_t *root = lv_obj_create(card);
-    lv_obj_remove_style_all(root);
-    lv_obj_set_size(root, 82, 82);
-    lv_obj_align(root, LV_ALIGN_TOP_LEFT, -2, 32);
-    make_noninteractive(root);
-
-    create_solid_shape(root, 25, 25, 43, 3, ICON_WEATHER_COLOR, LV_RADIUS_CIRCLE);
-    create_solid_shape(root, 3, 8, 54, 0, ICON_WEATHER_COLOR, 1);
-    create_solid_shape(root, 3, 8, 54, 25, ICON_WEATHER_COLOR, 1);
-    create_solid_shape(root, 8, 3, 36, 14, ICON_WEATHER_COLOR, 1);
-    create_solid_shape(root, 8, 3, 67, 14, ICON_WEATHER_COLOR, 1);
-
-    create_solid_shape(root, 58, 18, 5, 50, ICON_CLOUD_COLOR, 9);
-    create_solid_shape(root, 28, 28, 11, 37, ICON_CLOUD_COLOR, LV_RADIUS_CIRCLE);
-    create_solid_shape(root, 37, 37, 28, 27, ICON_CLOUD_COLOR, LV_RADIUS_CIRCLE);
-    create_solid_shape(root, 24, 24, 51, 42, ICON_CLOUD_COLOR, LV_RADIUS_CIRCLE);
-}
-
 static lv_obj_t *find_dashboard_layer(lv_obj_t *screen)
 {
     const uint32_t screen_child_count = lv_obj_get_child_cnt(screen);
@@ -228,7 +184,6 @@ static void decorate_dashboard_cards(lv_obj_t *screen)
         create_tank_badge(cards[0]);
         create_well_badge(cards[1]);
         create_sun_badge(cards[2]);
-        create_large_weather_icon(cards[2]);
     }
 }
 
