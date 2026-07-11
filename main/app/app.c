@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "analog_module_service.h"
 #include "app_model.h"
 #include "measurement_history.h"
 #include "clock_service.h"
@@ -18,6 +19,9 @@
 #include "screen_dashboard.h"
 
 static const char *TAG = "app";
+
+/* Zmienimy na true dopiero po sprawdzeniu przewodów A/B i zasilania modułu. */
+static const bool ANALOG_MODULE_HARDWARE_ENABLED = false;
 
 void app_start(void)
 {
@@ -103,6 +107,17 @@ void app_start(void)
             TAG,
             "Weather service unavailable: %s",
             esp_err_to_name(weather_result)
+        );
+    }
+
+    const esp_err_t analog_result = analog_module_service_start(
+        ANALOG_MODULE_HARDWARE_ENABLED
+    );
+    if (analog_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Analog module service unavailable: %s",
+            esp_err_to_name(analog_result)
         );
     }
 
