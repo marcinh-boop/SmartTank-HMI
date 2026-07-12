@@ -25,8 +25,8 @@
 
 static const char *TAG = "app";
 
-/* Zmienimy na true dopiero po sprawdzeniu przewodów A/B i zasilania modułu. */
-static const bool ANALOG_MODULE_HARDWARE_ENABLED = false;
+/* Moduł został podłączony i sprawdzony przed pierwszym testem RS485. */
+static const bool ANALOG_MODULE_HARDWARE_ENABLED = true;
 
 void app_start(void)
 {
