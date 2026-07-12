@@ -8,7 +8,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 
-#define SMARTTANK_RS485_UART_NUM UART_NUM_2
+#define SMARTTANK_RS485_UART_NUM UART_NUM_1
 #define SMARTTANK_RS485_RX_GPIO  43
 #define SMARTTANK_RS485_TX_GPIO  44
 
