@@ -28,6 +28,12 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config);
 esp_err_t rs485_port_deinit(void);
 bool rs485_port_is_initialized(void);
 
+esp_err_t rs485_port_set_line_config(
+    int baud_rate,
+    uart_parity_t parity,
+    uart_stop_bits_t stop_bits
+);
+
 esp_err_t rs485_port_exchange(
     const uint8_t *request,
     size_t request_len,
