@@ -6,6 +6,7 @@
 #define RS485_DEFAULT_BAUD_RATE       115200
 #define RS485_DEFAULT_RX_BUFFER_SIZE  512
 #define RS485_INTERBYTE_TIMEOUT_MS    20
+#define RS485_CONFIG_TIMEOUT_MS       250
 
 static const char *TAG = "rs485_port";
 static bool s_initialized;
@@ -136,6 +137,50 @@ esp_err_t rs485_port_deinit(void)
 bool rs485_port_is_initialized(void)
 {
     return s_initialized;
+}
+
+esp_err_t rs485_port_set_line_config(
+    int baud_rate,
+    uart_parity_t parity,
+    uart_stop_bits_t stop_bits)
+{
+    if (!s_initialized || s_bus_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (baud_rate <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(
+            s_bus_mutex,
+            pdMS_TO_TICKS(RS485_CONFIG_TIMEOUT_MS)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    uart_flush_input(s_uart_num);
+
+    esp_err_t err = uart_set_baudrate(s_uart_num, baud_rate);
+    if (err == ESP_OK) {
+        err = uart_set_parity(s_uart_num, parity);
+    }
+    if (err == ESP_OK) {
+        err = uart_set_stop_bits(s_uart_num, stop_bits);
+    }
+
+    xSemaphoreGive(s_bus_mutex);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(
+            TAG,
+            "RS485 line config: baud=%d parity=%d stop=%d",
+            baud_rate,
+            (int)parity,
+            (int)stop_bits
+        );
+    }
+
+    return err;
 }
 
 esp_err_t rs485_port_exchange(
