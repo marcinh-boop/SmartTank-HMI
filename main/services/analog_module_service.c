@@ -163,36 +163,53 @@ static void analog_module_task(void *argument)
 {
     (void)argument;
 
-    bool identity_loaded = false;
-    bool modes_loaded = false;
+    bool identity_attempted = false;
+    bool modes_attempted = false;
     waveshare_analog_8ch_snapshot_t module = {0};
 
     while (true) {
         bool identity_updated = false;
         bool modes_updated = false;
-        esp_err_t err = ESP_OK;
 
-        if (!identity_loaded) {
-            err = waveshare_analog_8ch_read_identity(&module);
-            if (err == ESP_OK) {
-                identity_loaded = true;
-                identity_updated = true;
-            }
-        }
-
-        if (err == ESP_OK && !modes_loaded) {
-            err = waveshare_analog_8ch_read_modes(&module);
-            if (err == ESP_OK) {
-                modes_loaded = true;
-                modes_updated = true;
-            }
-        }
+        /*
+         * Odczyt wejść 0x0000-0x0007 funkcją 04 jest potwierdzony
+         * w przykładach producenta, dlatego stan ONLINE zależy właśnie od niego.
+         * Rejestry identyfikacji i trybów są odczytywane pomocniczo tylko raz
+         * i ich brak nie blokuje podstawowej komunikacji z modułem.
+         */
+        const esp_err_t err = waveshare_analog_8ch_read_inputs(&module);
 
         if (err == ESP_OK) {
-            err = waveshare_analog_8ch_read_inputs(&module);
-        }
+            if (!identity_attempted) {
+                identity_attempted = true;
+                const esp_err_t identity_err =
+                    waveshare_analog_8ch_read_identity(&module);
+                if (identity_err == ESP_OK) {
+                    identity_updated = true;
+                } else {
+                    ESP_LOGW(
+                        TAG,
+                        "8CH identity registers unavailable: %s",
+                        esp_err_to_name(identity_err)
+                    );
+                }
+            }
 
-        if (err == ESP_OK) {
+            if (!modes_attempted) {
+                modes_attempted = true;
+                const esp_err_t modes_err =
+                    waveshare_analog_8ch_read_modes(&module);
+                if (modes_err == ESP_OK) {
+                    modes_updated = true;
+                } else {
+                    ESP_LOGW(
+                        TAG,
+                        "8CH mode registers unavailable: %s",
+                        esp_err_to_name(modes_err)
+                    );
+                }
+            }
+
             publish_success(&module, identity_updated, modes_updated);
             ESP_LOGI(
                 TAG,
@@ -203,7 +220,7 @@ static void analog_module_task(void *argument)
             );
         } else {
             publish_failure(err);
-            ESP_LOGW(TAG, "8CH poll failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "8CH input poll failed: %s", esp_err_to_name(err));
         }
 
         (void)ulTaskNotifyTake(
