@@ -12,17 +12,46 @@
 #define ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS 1U
 #define ANALOG_MODULE_DEFAULT_BAUD_RATE     9600U
 #define ANALOG_MODULE_RESPONSE_TIMEOUT_MS   350U
-#define ANALOG_MODULE_RETRY_COUNT           1U
+#define ANALOG_MODULE_RETRY_COUNT           0U
 #define ANALOG_MODULE_TASK_STACK            4096U
 #define ANALOG_MODULE_TASK_PRIORITY         2U
 #define ANALOG_MODULE_POLL_INTERVAL_MS      1000U
+#define ANALOG_MODULE_OFFLINE_POLL_MS       3000U
 #define ANALOG_MODULE_OFFLINE_THRESHOLD     3U
+
+#define ANALOG_MODULE_PROBE_TIMEOUT_MS      100U
+#define ANALOG_MODULE_PROBE_ADDRESS_FIRST   1U
+#define ANALOG_MODULE_PROBE_ADDRESS_LAST    16U
+#define ANALOG_MODULE_PROBE_SETTLE_MS       20U
+
+#define MODBUS_FUNCTION_READ_INPUT_REGISTERS 0x04U
+#define MODBUS_PROBE_REQUEST_SIZE            8U
+#define MODBUS_PROBE_RESPONSE_SIZE           16U
 
 static const char *TAG = "analog_module";
 
 static SemaphoreHandle_t s_mutex;
 static TaskHandle_t s_task;
 static analog_module_service_snapshot_t s_snapshot;
+
+typedef struct {
+    uint32_t baud_rate;
+    uart_parity_t parity;
+    const char *format_name;
+} analog_module_probe_line_t;
+
+static const analog_module_probe_line_t s_probe_lines[] = {
+    {9600U, UART_PARITY_DISABLE, "8N1"},
+    {19200U, UART_PARITY_DISABLE, "8N1"},
+    {38400U, UART_PARITY_DISABLE, "8N1"},
+    {57600U, UART_PARITY_DISABLE, "8N1"},
+    {115200U, UART_PARITY_DISABLE, "8N1"},
+    {4800U, UART_PARITY_DISABLE, "8N1"},
+    {9600U, UART_PARITY_EVEN, "8E1"},
+    {19200U, UART_PARITY_EVEN, "8E1"},
+    {38400U, UART_PARITY_EVEN, "8E1"},
+    {115200U, UART_PARITY_EVEN, "8E1"},
+};
 
 static bool state_lock(void)
 {
@@ -78,7 +107,22 @@ static void publish_start_state(
     state_unlock();
 }
 
-static void publish_transport_ready(void)
+static void publish_rs485_ready(void)
+{
+    if (!state_lock()) {
+        return;
+    }
+
+    s_snapshot.rs485_initialized = rs485_port_is_initialized();
+    s_snapshot.modbus_initialized = false;
+    s_snapshot.state = ANALOG_MODULE_STATE_STARTING;
+    s_snapshot.last_error = ESP_OK;
+    s_snapshot.revision++;
+
+    state_unlock();
+}
+
+static void publish_transport_ready(uint8_t slave_address, uint32_t baud_rate)
 {
     if (!state_lock()) {
         return;
@@ -86,6 +130,8 @@ static void publish_transport_ready(void)
 
     s_snapshot.rs485_initialized = rs485_port_is_initialized();
     s_snapshot.modbus_initialized = modbus_rtu_client_is_initialized();
+    s_snapshot.slave_address = slave_address;
+    s_snapshot.baud_rate = baud_rate;
     s_snapshot.state = ANALOG_MODULE_STATE_STARTING;
     s_snapshot.last_error = ESP_OK;
     s_snapshot.revision++;
@@ -159,9 +205,209 @@ static void publish_failure(esp_err_t error)
     state_unlock();
 }
 
+static bool probe_response_is_valid(
+    uint8_t slave_address,
+    const uint8_t *response,
+    size_t response_len)
+{
+    if (response == NULL || response_len < 5U) {
+        return false;
+    }
+
+    if (response[0] != slave_address) {
+        return false;
+    }
+
+    const uint16_t received_crc =
+        (uint16_t)response[response_len - 2U] |
+        ((uint16_t)response[response_len - 1U] << 8U);
+    const uint16_t calculated_crc = modbus_rtu_crc16(
+        response,
+        response_len - 2U
+    );
+
+    if (received_crc != calculated_crc) {
+        return false;
+    }
+
+    return response[1] == MODBUS_FUNCTION_READ_INPUT_REGISTERS ||
+           response[1] ==
+               (uint8_t)(MODBUS_FUNCTION_READ_INPUT_REGISTERS | 0x80U);
+}
+
+static bool probe_slave(uint8_t slave_address)
+{
+    uint8_t request[MODBUS_PROBE_REQUEST_SIZE] = {
+        slave_address,
+        MODBUS_FUNCTION_READ_INPUT_REGISTERS,
+        0x00U,
+        0x00U,
+        0x00U,
+        0x01U,
+        0x00U,
+        0x00U,
+    };
+
+    const uint16_t crc = modbus_rtu_crc16(request, 6U);
+    request[6] = (uint8_t)(crc & 0xFFU);
+    request[7] = (uint8_t)(crc >> 8U);
+
+    uint8_t response[MODBUS_PROBE_RESPONSE_SIZE] = {0};
+    size_t response_len = 0U;
+    const esp_err_t err = rs485_port_exchange(
+        request,
+        sizeof(request),
+        response,
+        sizeof(response),
+        &response_len,
+        pdMS_TO_TICKS(ANALOG_MODULE_PROBE_TIMEOUT_MS)
+    );
+
+    return err == ESP_OK &&
+           probe_response_is_valid(slave_address, response, response_len);
+}
+
+static bool detect_module(
+    uint8_t *slave_address,
+    uint32_t *baud_rate,
+    uart_parity_t *parity,
+    const char **format_name)
+{
+    if (slave_address == NULL ||
+        baud_rate == NULL ||
+        parity == NULL ||
+        format_name == NULL) {
+        return false;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "Starting 8CH Modbus scan: addresses %u-%u",
+        (unsigned int)ANALOG_MODULE_PROBE_ADDRESS_FIRST,
+        (unsigned int)ANALOG_MODULE_PROBE_ADDRESS_LAST
+    );
+
+    for (size_t line_index = 0U;
+         line_index < sizeof(s_probe_lines) / sizeof(s_probe_lines[0]);
+         line_index++) {
+        const analog_module_probe_line_t *line = &s_probe_lines[line_index];
+        const esp_err_t config_err = rs485_port_set_line_config(
+            (int)line->baud_rate,
+            line->parity,
+            UART_STOP_BITS_1
+        );
+        if (config_err != ESP_OK) {
+            ESP_LOGW(
+                TAG,
+                "Unable to set scan line %u %s: %s",
+                (unsigned int)line->baud_rate,
+                line->format_name,
+                esp_err_to_name(config_err)
+            );
+            continue;
+        }
+
+        ESP_LOGI(
+            TAG,
+            "Scanning 8CH at %u %s",
+            (unsigned int)line->baud_rate,
+            line->format_name
+        );
+        vTaskDelay(pdMS_TO_TICKS(ANALOG_MODULE_PROBE_SETTLE_MS));
+
+        for (uint8_t address = ANALOG_MODULE_PROBE_ADDRESS_FIRST;
+             address <= ANALOG_MODULE_PROBE_ADDRESS_LAST;
+             address++) {
+            if (!probe_slave(address)) {
+                continue;
+            }
+
+            *slave_address = address;
+            *baud_rate = line->baud_rate;
+            *parity = line->parity;
+            *format_name = line->format_name;
+
+            ESP_LOGI(
+                TAG,
+                "8CH detected: slave=%u, baud=%u, format=%s",
+                (unsigned int)address,
+                (unsigned int)line->baud_rate,
+                line->format_name
+            );
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static esp_err_t initialize_modbus(uint8_t slave_address)
+{
+    const modbus_rtu_client_config_t modbus_config = {
+        .slave_address = slave_address,
+        .response_timeout_ms = ANALOG_MODULE_RESPONSE_TIMEOUT_MS,
+        .retry_count = ANALOG_MODULE_RETRY_COUNT,
+    };
+
+    return modbus_rtu_client_init(&modbus_config);
+}
+
 static void analog_module_task(void *argument)
 {
     (void)argument;
+
+    uint8_t slave_address = ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS;
+    uint32_t baud_rate = ANALOG_MODULE_DEFAULT_BAUD_RATE;
+    uart_parity_t parity = UART_PARITY_DISABLE;
+    const char *format_name = "8N1";
+
+    const bool detected = detect_module(
+        &slave_address,
+        &baud_rate,
+        &parity,
+        &format_name
+    );
+
+    if (!detected) {
+        slave_address = ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS;
+        baud_rate = ANALOG_MODULE_DEFAULT_BAUD_RATE;
+        parity = UART_PARITY_DISABLE;
+        format_name = "8N1";
+
+        ESP_LOGW(
+            TAG,
+            "8CH scan found no valid response; restoring slave=1, 9600 8N1"
+        );
+    }
+
+    esp_err_t err = rs485_port_set_line_config(
+        (int)baud_rate,
+        parity,
+        UART_STOP_BITS_1
+    );
+    if (err != ESP_OK) {
+        publish_failure(err);
+        ESP_LOGE(TAG, "Unable to apply detected RS485 parameters: %s", esp_err_to_name(err));
+        vTaskDelete(NULL);
+        return;
+    }
+
+    err = initialize_modbus(slave_address);
+    if (err != ESP_OK) {
+        publish_failure(err);
+        ESP_LOGE(TAG, "Unable to initialize Modbus client: %s", esp_err_to_name(err));
+        vTaskDelete(NULL);
+        return;
+    }
+
+    publish_transport_ready(slave_address, baud_rate);
+    ESP_LOGI(
+        TAG,
+        "Waveshare 8CH polling enabled: slave=%u, %u baud, %s",
+        (unsigned int)slave_address,
+        (unsigned int)baud_rate,
+        format_name
+    );
 
     bool identity_attempted = false;
     bool modes_attempted = false;
@@ -177,7 +423,7 @@ static void analog_module_task(void *argument)
          * Rejestry identyfikacji i trybów są odczytywane pomocniczo tylko raz
          * i ich brak nie blokuje podstawowej komunikacji z modułem.
          */
-        const esp_err_t err = waveshare_analog_8ch_read_inputs(&module);
+        err = waveshare_analog_8ch_read_inputs(&module);
 
         if (err == ESP_OK) {
             if (!identity_attempted) {
@@ -223,10 +469,13 @@ static void analog_module_task(void *argument)
             ESP_LOGW(TAG, "8CH input poll failed: %s", esp_err_to_name(err));
         }
 
-        (void)ulTaskNotifyTake(
-            pdTRUE,
-            pdMS_TO_TICKS(ANALOG_MODULE_POLL_INTERVAL_MS)
-        );
+        analog_module_service_snapshot_t snapshot;
+        analog_module_service_get_snapshot(&snapshot);
+        const uint32_t delay_ms = snapshot.online
+            ? ANALOG_MODULE_POLL_INTERVAL_MS
+            : ANALOG_MODULE_OFFLINE_POLL_MS;
+
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
     }
 }
 
@@ -283,25 +532,13 @@ esp_err_t analog_module_service_start(bool enable_hardware)
     port_config.parity = UART_PARITY_DISABLE;
     port_config.stop_bits = UART_STOP_BITS_1;
 
-    esp_err_t err = rs485_port_init(&port_config);
+    const esp_err_t err = rs485_port_init(&port_config);
     if (err != ESP_OK) {
         publish_failure(err);
         return err;
     }
 
-    const modbus_rtu_client_config_t modbus_config = {
-        .slave_address = ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS,
-        .response_timeout_ms = ANALOG_MODULE_RESPONSE_TIMEOUT_MS,
-        .retry_count = ANALOG_MODULE_RETRY_COUNT,
-    };
-
-    err = modbus_rtu_client_init(&modbus_config);
-    if (err != ESP_OK) {
-        publish_failure(err);
-        return err;
-    }
-
-    publish_transport_ready();
+    publish_rs485_ready();
 
     const BaseType_t task_result = xTaskCreate(
         analog_module_task,
@@ -317,12 +554,7 @@ esp_err_t analog_module_service_start(bool enable_hardware)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(
-        TAG,
-        "Waveshare 8CH polling enabled: slave=%u, %u baud, 8N1",
-        (unsigned int)ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS,
-        (unsigned int)ANALOG_MODULE_DEFAULT_BAUD_RATE
-    );
+    ESP_LOGI(TAG, "Waveshare 8CH automatic Modbus detection started");
     return ESP_OK;
 }
 
