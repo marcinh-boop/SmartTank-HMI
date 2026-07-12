@@ -19,14 +19,14 @@
 #define ANALOG_MODULE_OFFLINE_POLL_MS       3000U
 #define ANALOG_MODULE_OFFLINE_THRESHOLD     3U
 
-#define ANALOG_MODULE_PROBE_TIMEOUT_MS      100U
-#define ANALOG_MODULE_PROBE_ADDRESS_FIRST   1U
-#define ANALOG_MODULE_PROBE_ADDRESS_LAST    16U
+#define ANALOG_MODULE_PROBE_TIMEOUT_MS      150U
 #define ANALOG_MODULE_PROBE_SETTLE_MS       20U
 
-#define MODBUS_FUNCTION_READ_INPUT_REGISTERS 0x04U
-#define MODBUS_PROBE_REQUEST_SIZE            8U
-#define MODBUS_PROBE_RESPONSE_SIZE           16U
+#define MODBUS_FUNCTION_READ_HOLDING_REGISTERS 0x03U
+#define MODBUS_FUNCTION_READ_INPUT_REGISTERS   0x04U
+#define MODBUS_PROBE_REQUEST_SIZE              8U
+#define MODBUS_PROBE_RESPONSE_SIZE             16U
+#define WAVESHARE_DEVICE_ADDRESS_REGISTER      0x4000U
 
 static const char *TAG = "analog_module";
 
@@ -40,6 +40,10 @@ typedef struct {
     const char *format_name;
 } analog_module_probe_line_t;
 
+/*
+ * Protokół V2 producenta dopuszcza 4800-256000 oraz brak/parzystą/
+ * nieparzystą kontrolę parzystości. Najpierw sprawdzamy ustawienia domyślne.
+ */
 static const analog_module_probe_line_t s_probe_lines[] = {
     {9600U, UART_PARITY_DISABLE, "8N1"},
     {19200U, UART_PARITY_DISABLE, "8N1"},
@@ -47,10 +51,26 @@ static const analog_module_probe_line_t s_probe_lines[] = {
     {57600U, UART_PARITY_DISABLE, "8N1"},
     {115200U, UART_PARITY_DISABLE, "8N1"},
     {4800U, UART_PARITY_DISABLE, "8N1"},
+    {128000U, UART_PARITY_DISABLE, "8N1"},
+    {256000U, UART_PARITY_DISABLE, "8N1"},
+
     {9600U, UART_PARITY_EVEN, "8E1"},
     {19200U, UART_PARITY_EVEN, "8E1"},
     {38400U, UART_PARITY_EVEN, "8E1"},
+    {57600U, UART_PARITY_EVEN, "8E1"},
     {115200U, UART_PARITY_EVEN, "8E1"},
+    {4800U, UART_PARITY_EVEN, "8E1"},
+    {128000U, UART_PARITY_EVEN, "8E1"},
+    {256000U, UART_PARITY_EVEN, "8E1"},
+
+    {9600U, UART_PARITY_ODD, "8O1"},
+    {19200U, UART_PARITY_ODD, "8O1"},
+    {38400U, UART_PARITY_ODD, "8O1"},
+    {57600U, UART_PARITY_ODD, "8O1"},
+    {115200U, UART_PARITY_ODD, "8O1"},
+    {4800U, UART_PARITY_ODD, "8O1"},
+    {128000U, UART_PARITY_ODD, "8O1"},
+    {256000U, UART_PARITY_ODD, "8O1"},
 };
 
 static bool state_lock(void)
@@ -205,40 +225,81 @@ static void publish_failure(esp_err_t error)
     state_unlock();
 }
 
-static bool probe_response_is_valid(
-    uint8_t slave_address,
-    const uint8_t *response,
-    size_t response_len)
+static bool frame_crc_is_valid(const uint8_t *frame, size_t frame_len)
 {
-    if (response == NULL || response_len < 5U) {
-        return false;
-    }
-
-    if (response[0] != slave_address) {
+    if (frame == NULL || frame_len < 4U) {
         return false;
     }
 
     const uint16_t received_crc =
-        (uint16_t)response[response_len - 2U] |
-        ((uint16_t)response[response_len - 1U] << 8U);
-    const uint16_t calculated_crc = modbus_rtu_crc16(
-        response,
-        response_len - 2U
-    );
+        (uint16_t)frame[frame_len - 2U] |
+        ((uint16_t)frame[frame_len - 1U] << 8U);
+    const uint16_t calculated_crc = modbus_rtu_crc16(frame, frame_len - 2U);
 
-    if (received_crc != calculated_crc) {
+    return received_crc == calculated_crc;
+}
+
+/*
+ * Waveshare udostępnia producentowską komendę rozgłoszeniową:
+ * 00 03 40 00 00 01 90 1B
+ * Moduł odpowiada własnym adresem w pierwszym bajcie oraz w danych rejestru.
+ * Pozwala to wykryć adres bez zgadywania zakresu 1-255 i bez zapisu ustawień.
+ */
+static bool probe_device_address(uint8_t *detected_address)
+{
+    if (detected_address == NULL) {
         return false;
     }
 
-    return response[1] == MODBUS_FUNCTION_READ_INPUT_REGISTERS ||
-           response[1] ==
-               (uint8_t)(MODBUS_FUNCTION_READ_INPUT_REGISTERS | 0x80U);
+    uint8_t request[MODBUS_PROBE_REQUEST_SIZE] = {
+        0x00U,
+        MODBUS_FUNCTION_READ_HOLDING_REGISTERS,
+        (uint8_t)(WAVESHARE_DEVICE_ADDRESS_REGISTER >> 8U),
+        (uint8_t)(WAVESHARE_DEVICE_ADDRESS_REGISTER & 0xFFU),
+        0x00U,
+        0x01U,
+        0x00U,
+        0x00U,
+    };
+
+    const uint16_t crc = modbus_rtu_crc16(request, 6U);
+    request[6] = (uint8_t)(crc & 0xFFU);
+    request[7] = (uint8_t)(crc >> 8U);
+
+    uint8_t response[MODBUS_PROBE_RESPONSE_SIZE] = {0};
+    size_t response_len = 0U;
+    const esp_err_t err = rs485_port_exchange(
+        request,
+        sizeof(request),
+        response,
+        sizeof(response),
+        &response_len,
+        pdMS_TO_TICKS(ANALOG_MODULE_PROBE_TIMEOUT_MS)
+    );
+
+    if (err != ESP_OK ||
+        response_len != 7U ||
+        !frame_crc_is_valid(response, response_len) ||
+        response[1] != MODBUS_FUNCTION_READ_HOLDING_REGISTERS ||
+        response[2] != 0x02U ||
+        response[3] != 0x00U) {
+        return false;
+    }
+
+    const uint8_t address = response[4];
+    if (address == 0U || response[0] != address) {
+        return false;
+    }
+
+    *detected_address = address;
+    return true;
 }
 
-static bool probe_slave(uint8_t slave_address)
+/* Awaryjny test zgodności ze starszym firmware modułu przy adresie 1. */
+static bool probe_default_address(void)
 {
     uint8_t request[MODBUS_PROBE_REQUEST_SIZE] = {
-        slave_address,
+        ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS,
         MODBUS_FUNCTION_READ_INPUT_REGISTERS,
         0x00U,
         0x00U,
@@ -263,8 +324,16 @@ static bool probe_slave(uint8_t slave_address)
         pdMS_TO_TICKS(ANALOG_MODULE_PROBE_TIMEOUT_MS)
     );
 
-    return err == ESP_OK &&
-           probe_response_is_valid(slave_address, response, response_len);
+    if (err != ESP_OK ||
+        response_len < 5U ||
+        !frame_crc_is_valid(response, response_len) ||
+        response[0] != ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS) {
+        return false;
+    }
+
+    return response[1] == MODBUS_FUNCTION_READ_INPUT_REGISTERS ||
+           response[1] ==
+               (uint8_t)(MODBUS_FUNCTION_READ_INPUT_REGISTERS | 0x80U);
 }
 
 static bool detect_module(
@@ -280,12 +349,7 @@ static bool detect_module(
         return false;
     }
 
-    ESP_LOGI(
-        TAG,
-        "Starting 8CH Modbus scan: addresses %u-%u",
-        (unsigned int)ANALOG_MODULE_PROBE_ADDRESS_FIRST,
-        (unsigned int)ANALOG_MODULE_PROBE_ADDRESS_LAST
-    );
+    ESP_LOGI(TAG, "Starting 8CH broadcast parameter detection");
 
     for (size_t line_index = 0U;
          line_index < sizeof(s_probe_lines) / sizeof(s_probe_lines[0]);
@@ -309,33 +373,33 @@ static bool detect_module(
 
         ESP_LOGI(
             TAG,
-            "Scanning 8CH at %u %s",
+            "Probing 8CH address at %u %s",
             (unsigned int)line->baud_rate,
             line->format_name
         );
         vTaskDelay(pdMS_TO_TICKS(ANALOG_MODULE_PROBE_SETTLE_MS));
 
-        for (uint8_t address = ANALOG_MODULE_PROBE_ADDRESS_FIRST;
-             address <= ANALOG_MODULE_PROBE_ADDRESS_LAST;
-             address++) {
-            if (!probe_slave(address)) {
+        uint8_t address = 0U;
+        if (!probe_device_address(&address)) {
+            if (!probe_default_address()) {
                 continue;
             }
-
-            *slave_address = address;
-            *baud_rate = line->baud_rate;
-            *parity = line->parity;
-            *format_name = line->format_name;
-
-            ESP_LOGI(
-                TAG,
-                "8CH detected: slave=%u, baud=%u, format=%s",
-                (unsigned int)address,
-                (unsigned int)line->baud_rate,
-                line->format_name
-            );
-            return true;
+            address = ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS;
         }
+
+        *slave_address = address;
+        *baud_rate = line->baud_rate;
+        *parity = line->parity;
+        *format_name = line->format_name;
+
+        ESP_LOGI(
+            TAG,
+            "8CH detected: slave=%u, baud=%u, format=%s",
+            (unsigned int)address,
+            (unsigned int)line->baud_rate,
+            line->format_name
+        );
+        return true;
     }
 
     return false;
@@ -376,7 +440,7 @@ static void analog_module_task(void *argument)
 
         ESP_LOGW(
             TAG,
-            "8CH scan found no valid response; restoring slave=1, 9600 8N1"
+            "8CH broadcast detection found no response; restoring slave=1, 9600 8N1"
         );
     }
 
@@ -387,7 +451,11 @@ static void analog_module_task(void *argument)
     );
     if (err != ESP_OK) {
         publish_failure(err);
-        ESP_LOGE(TAG, "Unable to apply detected RS485 parameters: %s", esp_err_to_name(err));
+        ESP_LOGE(
+            TAG,
+            "Unable to apply detected RS485 parameters: %s",
+            esp_err_to_name(err)
+        );
         vTaskDelete(NULL);
         return;
     }
@@ -395,7 +463,11 @@ static void analog_module_task(void *argument)
     err = initialize_modbus(slave_address);
     if (err != ESP_OK) {
         publish_failure(err);
-        ESP_LOGE(TAG, "Unable to initialize Modbus client: %s", esp_err_to_name(err));
+        ESP_LOGE(
+            TAG,
+            "Unable to initialize Modbus client: %s",
+            esp_err_to_name(err)
+        );
         vTaskDelete(NULL);
         return;
     }
@@ -417,12 +489,6 @@ static void analog_module_task(void *argument)
         bool identity_updated = false;
         bool modes_updated = false;
 
-        /*
-         * Odczyt wejść 0x0000-0x0007 funkcją 04 jest potwierdzony
-         * w przykładach producenta, dlatego stan ONLINE zależy właśnie od niego.
-         * Rejestry identyfikacji i trybów są odczytywane pomocniczo tylko raz
-         * i ich brak nie blokuje podstawowej komunikacji z modułem.
-         */
         err = waveshare_analog_8ch_read_inputs(&module);
 
         if (err == ESP_OK) {
@@ -554,7 +620,7 @@ esp_err_t analog_module_service_start(bool enable_hardware)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Waveshare 8CH automatic Modbus detection started");
+    ESP_LOGI(TAG, "Waveshare 8CH broadcast Modbus detection started");
     return ESP_OK;
 }
 
