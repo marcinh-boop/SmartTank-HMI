@@ -489,7 +489,7 @@ static void build_screen(lv_obj_t *parent_screen)
         &lv_font_montserrat_14
     );
     s_rs485_status = create_value_row(rs485_panel, "Stan", "--", 34);
-    create_value_row(rs485_panel, "UART", "UART2", 66);
+    create_value_row(rs485_panel, "UART", "UART1", 66);
     create_value_row(rs485_panel, "TX", "GPIO44", 98);
     create_value_row(rs485_panel, "RX", "GPIO43", 130);
     create_value_row(rs485_panel, "Kierunek", "AUTO", 162);
