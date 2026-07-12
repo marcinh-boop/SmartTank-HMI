@@ -26,7 +26,8 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - przygotowanie sterownika Waveshare Modbus RTU Analog Input 8CH,
 - obsługę funkcji Modbus 03, 04 i 06,
 - sprzętowe odpytywanie modułu Waveshare 8CH po RS485,
-- automatyczne wykrywanie adresu 1–16, typowych prędkości i formatów 8N1/8E1 modułu 8CH,
+- odczyt adresu urządzenia komendą rozgłoszeniową producenta bez zmiany konfiguracji,
+- automatyczne wykrywanie wszystkich udokumentowanych prędkości 4800–256000 oraz formatów 8N1/8E1/8O1,
 - przygotowanie partycji `factory`, `ota_0`, `ota_1` i `otadata`.
 
 ### Zmieniono
