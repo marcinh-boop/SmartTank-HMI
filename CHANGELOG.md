@@ -25,6 +25,7 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - dolną nawigację z ikonami i licznikiem aktywnych alarmów,
 - przygotowanie sterownika Waveshare Modbus RTU Analog Input 8CH,
 - obsługę funkcji Modbus 03, 04 i 06,
+- sprzętowe odpytywanie modułu Waveshare 8CH po RS485 przy 9600 8N1,
 - przygotowanie partycji `factory`, `ota_0`, `ota_1` i `otadata`.
 
 ### Zmieniono
@@ -35,7 +36,9 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - zastąpiono osobne kafelki alarmowe jedną tabelą zdarzeń,
 - przywrócono przycisk wyboru miejscowości w ustawieniach,
 - rozszerzono pasek statusu o Wi-Fi, MQTT i RS485,
-- zamrożono interfejs użytkownika przed integracją rzeczywistych czujników.
+- zamrożono interfejs użytkownika przed integracją rzeczywistych czujników,
+- stan ONLINE modułu 8CH oparto na potwierdzonym przez producenta odczycie wejść funkcją 04,
+- pomocnicze odczyty rejestrów identyfikacji i trybów nie blokują już podstawowej komunikacji.
 
 ### Naprawiono
 
@@ -50,7 +53,7 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 ### Ograniczenia obecnego wydania
 
 - poziom szamba i studni nadal pochodzi z symulatora,
-- moduł Waveshare 8CH jest programowo przygotowany, ale sprzęt pozostaje wyłączony,
+- moduł Waveshare 8CH jest włączony do testu komunikacji, ale jego dane nie sterują jeszcze kaflami,
 - historia pomiarów i alarmów nie jest jeszcze trwała po restarcie,
 - OTA przez Wi-Fi nie jest jeszcze zaimplementowane,
 - webserver, MQTT i Home Assistant są zaplanowane po wersji 1.0.0.
