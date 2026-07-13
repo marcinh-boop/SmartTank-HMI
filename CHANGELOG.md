@@ -51,7 +51,8 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - pozycjonowanie ikony pogody,
 - brak reakcji kafla studni,
 - brak reakcji kafla pogody,
-- znikający przycisk wyboru miejscowości.
+- znikający przycisk wyboru miejscowości,
+- odbiór krótkich ramek Modbus RTU przez obniżenie progu FIFO UART i włączenie timeoutu znakowego RX.
 
 ### Ograniczenia obecnego wydania
 
