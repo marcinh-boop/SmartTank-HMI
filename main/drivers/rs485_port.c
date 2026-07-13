@@ -7,6 +7,8 @@
 #define RS485_DEFAULT_RX_BUFFER_SIZE  512
 #define RS485_INTERBYTE_TIMEOUT_MS    20
 #define RS485_CONFIG_TIMEOUT_MS       250
+#define RS485_RX_FULL_THRESHOLD       1
+#define RS485_RX_TIMEOUT_SYMBOLS      3
 
 static const char *TAG = "rs485_port";
 static bool s_initialized;
@@ -102,16 +104,47 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         return err;
     }
 
+    /*
+     * Odpowiedź modułu 8CH ma tylko 21 bajtów. Domyślny próg FIFO UART
+     * może nie wygenerować przerwania odbioru dla tak krótkiej ramki,
+     * przez co uart_read_bytes() czeka do timeoutu mimo danych w FIFO.
+     * Niski próg i timeout znakowy wymuszają szybkie przekazanie danych
+     * z FIFO sprzętowego do bufora sterownika ESP-IDF.
+     */
+    err = uart_set_rx_full_threshold(
+        config->uart_num,
+        RS485_RX_FULL_THRESHOLD
+    );
+    if (err != ESP_OK) {
+        uart_driver_delete(config->uart_num);
+        vSemaphoreDelete(s_bus_mutex);
+        s_bus_mutex = NULL;
+        return err;
+    }
+
+    err = uart_set_rx_timeout(
+        config->uart_num,
+        RS485_RX_TIMEOUT_SYMBOLS
+    );
+    if (err != ESP_OK) {
+        uart_driver_delete(config->uart_num);
+        vSemaphoreDelete(s_bus_mutex);
+        s_bus_mutex = NULL;
+        return err;
+    }
+
     s_uart_num = config->uart_num;
     s_initialized = true;
 
     ESP_LOGI(
         TAG,
-        "RS485 ready: UART%d TX=%d RX=%d baud=%d auto-direction",
+        "RS485 ready: UART%d TX=%d RX=%d baud=%d auto-direction, RX threshold=%d timeout=%d",
         (int)config->uart_num,
         config->tx_gpio,
         config->rx_gpio,
-        config->baud_rate
+        config->baud_rate,
+        RS485_RX_FULL_THRESHOLD,
+        RS485_RX_TIMEOUT_SYMBOLS
     );
 
     return ESP_OK;
