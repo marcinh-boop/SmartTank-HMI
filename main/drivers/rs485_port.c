@@ -1,18 +1,21 @@
 #include "rs485_port.h"
 
 #include "esp_log.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #define RS485_DEFAULT_BAUD_RATE       115200
 #define RS485_DEFAULT_RX_BUFFER_SIZE  2048
-#define RS485_READ_SLICE_MS           20
+#define RS485_EVENT_QUEUE_SIZE        20
+#define RS485_INTERBYTE_TIMEOUT_MS    20
 #define RS485_CONFIG_TIMEOUT_MS       250
 
 static const char *TAG = "rs485_port";
 static bool s_initialized;
 static uart_port_t s_uart_num = SMARTTANK_RS485_UART_NUM;
 static SemaphoreHandle_t s_bus_mutex;
+static QueueHandle_t s_uart_queue;
 
 void rs485_port_get_board_default_config(rs485_port_config_t *config)
 {
@@ -63,13 +66,14 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         config->uart_num,
         config->rx_buffer_size,
         0,
-        0,
-        NULL,
+        RS485_EVENT_QUEUE_SIZE,
+        &s_uart_queue,
         0
     );
     if (err != ESP_OK) {
         vSemaphoreDelete(s_bus_mutex);
         s_bus_mutex = NULL;
+        s_uart_queue = NULL;
         return err;
     }
 
@@ -78,6 +82,7 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         uart_driver_delete(config->uart_num);
         vSemaphoreDelete(s_bus_mutex);
         s_bus_mutex = NULL;
+        s_uart_queue = NULL;
         return err;
     }
 
@@ -92,6 +97,7 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         uart_driver_delete(config->uart_num);
         vSemaphoreDelete(s_bus_mutex);
         s_bus_mutex = NULL;
+        s_uart_queue = NULL;
         return err;
     }
 
@@ -100,12 +106,13 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
 
     ESP_LOGI(
         TAG,
-        "RS485 ready: UART%d TX=%d RX=%d baud=%d RX-buffer=%d",
+        "RS485 ready: UART%d TX=%d RX=%d baud=%d RX-buffer=%d event-queue=%d",
         (int)config->uart_num,
         config->tx_gpio,
         config->rx_gpio,
         config->baud_rate,
-        config->rx_buffer_size
+        config->rx_buffer_size,
+        RS485_EVENT_QUEUE_SIZE
     );
 
     return ESP_OK;
@@ -124,6 +131,7 @@ esp_err_t rs485_port_deinit(void)
         s_bus_mutex = NULL;
     }
 
+    s_uart_queue = NULL;
     s_initialized = false;
     return err;
 }
@@ -153,6 +161,9 @@ esp_err_t rs485_port_set_line_config(
     }
 
     uart_flush_input(s_uart_num);
+    if (s_uart_queue != NULL) {
+        xQueueReset(s_uart_queue);
+    }
 
     esp_err_t err = uart_set_baudrate(s_uart_num, baud_rate);
     if (err == ESP_OK) {
@@ -177,6 +188,40 @@ esp_err_t rs485_port_set_line_config(
     return err;
 }
 
+static esp_err_t read_uart_event_data(
+    const uart_event_t *event,
+    uint8_t *response,
+    size_t response_capacity,
+    size_t *total)
+{
+    if (event == NULL || response == NULL || total == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (event->type != UART_DATA || event->size == 0U) {
+        return ESP_OK;
+    }
+
+    size_t remaining = response_capacity - *total;
+    size_t requested = event->size < remaining ? event->size : remaining;
+    if (requested == 0U) {
+        return ESP_OK;
+    }
+
+    const int received = uart_read_bytes(
+        s_uart_num,
+        response + *total,
+        requested,
+        0
+    );
+    if (received < 0) {
+        return ESP_FAIL;
+    }
+
+    *total += (size_t)received;
+    return ESP_OK;
+}
+
 esp_err_t rs485_port_exchange(
     const uint8_t *request,
     size_t request_len,
@@ -185,7 +230,7 @@ esp_err_t rs485_port_exchange(
     size_t *response_len,
     TickType_t response_timeout)
 {
-    if (!s_initialized) {
+    if (!s_initialized || s_uart_queue == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -205,6 +250,7 @@ esp_err_t rs485_port_exchange(
     *response_len = 0U;
 
     uart_flush_input(s_uart_num);
+    xQueueReset(s_uart_queue);
 
     const int written = uart_write_bytes(
         s_uart_num,
@@ -222,25 +268,83 @@ esp_err_t rs485_port_exchange(
     }
 
     const TickType_t start_tick = xTaskGetTickCount();
-    const TickType_t read_slice = pdMS_TO_TICKS(RS485_READ_SLICE_MS);
     size_t total = 0U;
+    bool frame_started = false;
 
-    while ((xTaskGetTickCount() - start_tick) < response_timeout &&
-           total < response_capacity) {
-        const int received = uart_read_bytes(
-            s_uart_num,
-            response + total,
-            response_capacity - total,
-            read_slice
-        );
-
-        if (received > 0) {
-            total += (size_t)received;
-            continue;
+    while (total < response_capacity) {
+        const TickType_t elapsed = xTaskGetTickCount() - start_tick;
+        if (elapsed >= response_timeout) {
+            break;
         }
 
-        if (total > 0U) {
+        const TickType_t wait_ticks = frame_started
+            ? pdMS_TO_TICKS(RS485_INTERBYTE_TIMEOUT_MS)
+            : response_timeout - elapsed;
+
+        uart_event_t event;
+        if (xQueueReceive(s_uart_queue, &event, wait_ticks) != pdTRUE) {
             break;
+        }
+
+        switch (event.type) {
+            case UART_DATA:
+                result = read_uart_event_data(
+                    &event,
+                    response,
+                    response_capacity,
+                    &total
+                );
+                if (result != ESP_OK) {
+                    goto finish;
+                }
+                frame_started = total > 0U;
+                break;
+
+            case UART_FIFO_OVF:
+            case UART_BUFFER_FULL:
+                ESP_LOGW(TAG, "UART%d RX overflow; flushing input", (int)s_uart_num);
+                uart_flush_input(s_uart_num);
+                xQueueReset(s_uart_queue);
+                result = ESP_ERR_NO_MEM;
+                goto finish;
+
+            case UART_BREAK:
+            case UART_PARITY_ERR:
+            case UART_FRAME_ERR:
+                ESP_LOGW(
+                    TAG,
+                    "UART%d RX event error: type=%d",
+                    (int)s_uart_num,
+                    (int)event.type
+                );
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if (total == 0U) {
+        size_t buffered = 0U;
+        if (uart_get_buffered_data_len(s_uart_num, &buffered) == ESP_OK &&
+            buffered > 0U) {
+            const size_t requested = buffered < response_capacity
+                ? buffered
+                : response_capacity;
+            const int received = uart_read_bytes(
+                s_uart_num,
+                response,
+                requested,
+                0
+            );
+            if (received > 0) {
+                total = (size_t)received;
+                ESP_LOGW(
+                    TAG,
+                    "Recovered %u RX bytes without UART_DATA event",
+                    (unsigned int)total
+                );
+            }
         }
     }
 
@@ -250,6 +354,7 @@ esp_err_t rs485_port_exchange(
     }
 
     *response_len = total;
+    ESP_LOGI(TAG, "UART%d received %u bytes", (int)s_uart_num, (unsigned int)total);
 
 finish:
     xSemaphoreGive(s_bus_mutex);
