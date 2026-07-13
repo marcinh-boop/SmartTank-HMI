@@ -2,13 +2,12 @@
 
 #include "esp_log.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #define RS485_DEFAULT_BAUD_RATE       115200
-#define RS485_DEFAULT_RX_BUFFER_SIZE  512
-#define RS485_INTERBYTE_TIMEOUT_MS    20
+#define RS485_DEFAULT_RX_BUFFER_SIZE  2048
+#define RS485_READ_SLICE_MS           20
 #define RS485_CONFIG_TIMEOUT_MS       250
-#define RS485_RX_FULL_THRESHOLD       1
-#define RS485_RX_TIMEOUT_SYMBOLS      3
 
 static const char *TAG = "rs485_port";
 static bool s_initialized;
@@ -96,55 +95,17 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         return err;
     }
 
-    err = uart_set_mode(config->uart_num, UART_MODE_UART);
-    if (err != ESP_OK) {
-        uart_driver_delete(config->uart_num);
-        vSemaphoreDelete(s_bus_mutex);
-        s_bus_mutex = NULL;
-        return err;
-    }
-
-    /*
-     * Odpowiedź modułu 8CH ma tylko 21 bajtów. Domyślny próg FIFO UART
-     * może nie wygenerować przerwania odbioru dla tak krótkiej ramki,
-     * przez co uart_read_bytes() czeka do timeoutu mimo danych w FIFO.
-     * Niski próg i timeout znakowy wymuszają szybkie przekazanie danych
-     * z FIFO sprzętowego do bufora sterownika ESP-IDF.
-     */
-    err = uart_set_rx_full_threshold(
-        config->uart_num,
-        RS485_RX_FULL_THRESHOLD
-    );
-    if (err != ESP_OK) {
-        uart_driver_delete(config->uart_num);
-        vSemaphoreDelete(s_bus_mutex);
-        s_bus_mutex = NULL;
-        return err;
-    }
-
-    err = uart_set_rx_timeout(
-        config->uart_num,
-        RS485_RX_TIMEOUT_SYMBOLS
-    );
-    if (err != ESP_OK) {
-        uart_driver_delete(config->uart_num);
-        vSemaphoreDelete(s_bus_mutex);
-        s_bus_mutex = NULL;
-        return err;
-    }
-
     s_uart_num = config->uart_num;
     s_initialized = true;
 
     ESP_LOGI(
         TAG,
-        "RS485 ready: UART%d TX=%d RX=%d baud=%d auto-direction, RX threshold=%d timeout=%d",
+        "RS485 ready: UART%d TX=%d RX=%d baud=%d RX-buffer=%d",
         (int)config->uart_num,
         config->tx_gpio,
         config->rx_gpio,
         config->baud_rate,
-        RS485_RX_FULL_THRESHOLD,
-        RS485_RX_TIMEOUT_SYMBOLS
+        config->rx_buffer_size
     );
 
     return ESP_OK;
@@ -260,32 +221,32 @@ esp_err_t rs485_port_exchange(
         goto finish;
     }
 
-    int received = uart_read_bytes(
-        s_uart_num,
-        response,
-        response_capacity,
-        response_timeout
-    );
-    if (received <= 0) {
-        result = ESP_ERR_TIMEOUT;
-        goto finish;
-    }
+    const TickType_t start_tick = xTaskGetTickCount();
+    const TickType_t read_slice = pdMS_TO_TICKS(RS485_READ_SLICE_MS);
+    size_t total = 0U;
 
-    size_t total = (size_t)received;
-
-    while (total < response_capacity) {
-        received = uart_read_bytes(
+    while ((xTaskGetTickCount() - start_tick) < response_timeout &&
+           total < response_capacity) {
+        const int received = uart_read_bytes(
             s_uart_num,
             response + total,
             response_capacity - total,
-            pdMS_TO_TICKS(RS485_INTERBYTE_TIMEOUT_MS)
+            read_slice
         );
 
-        if (received <= 0) {
-            break;
+        if (received > 0) {
+            total += (size_t)received;
+            continue;
         }
 
-        total += (size_t)received;
+        if (total > 0U) {
+            break;
+        }
+    }
+
+    if (total == 0U) {
+        result = ESP_ERR_TIMEOUT;
+        goto finish;
     }
 
     *response_len = total;
