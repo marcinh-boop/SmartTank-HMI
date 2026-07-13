@@ -42,7 +42,8 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - stan ONLINE modułu 8CH oparto na potwierdzonym przez producenta odczycie wejść funkcją 04,
 - pomocnicze odczyty rejestrów identyfikacji i trybów nie blokują już podstawowej komunikacji,
 - po nieudanym odczycie częstotliwość kolejnych prób ograniczono, aby nie zalewać magistrali i logów,
-- konfigurację portu RS485 dopasowano do przykładu ESP-IDF producenta: UART2, GPIO43/44, bufor RX 2048 B i odczyt w krokach 20 ms.
+- konfigurację portu RS485 dopasowano do przykładu ESP-IDF producenta: UART2, GPIO43/44 i bufor RX 2048 B,
+- odbiór RS485 przeniesiono do stałego zadania UART działającego niezależnie od sekwencji nadawania Modbus.
 
 ### Naprawiono
 
@@ -52,7 +53,8 @@ W tym pliku zapisywane są istotne zmiany projektu SmartTank HMI. Do czasu wydan
 - pozycjonowanie ikony pogody,
 - brak reakcji kafla studni,
 - brak reakcji kafla pogody,
-- znikający przycisk wyboru miejscowości.
+- znikający przycisk wyboru miejscowości,
+- ryzyko utraty krótkiej odpowiedzi Modbus pojawiającej się podczas końcowej fazy transmisji zapytania.
 
 ### Ograniczenia obecnego wydania
 
