@@ -3,11 +3,10 @@
 #include "esp_log.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sdkconfig.h"
 
 #define RS485_DEFAULT_BAUD_RATE       9600
 #define RS485_DEFAULT_RX_BUFFER_SIZE  2048
-#define RS485_FIRST_BYTE_SLICE_MS     20
-#define RS485_INTERBYTE_TIMEOUT_MS    20
 #define RS485_CONFIG_TIMEOUT_MS       250
 
 static const char *TAG = "rs485_port";
@@ -56,9 +55,13 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         .parity = config->parity,
         .stop_bits = config->stop_bits,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .rx_flow_ctrl_thresh = 0,
         .source_clk = UART_SCLK_DEFAULT,
     };
+
+    int intr_alloc_flags = 0;
+#if CONFIG_UART_ISR_IN_IRAM
+    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+#endif
 
     esp_err_t err = uart_driver_install(
         config->uart_num,
@@ -66,7 +69,7 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
         0,
         0,
         NULL,
-        0
+        intr_alloc_flags
     );
     if (err != ESP_OK) {
         vSemaphoreDelete(s_bus_mutex);
@@ -84,9 +87,6 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
             UART_PIN_NO_CHANGE
         );
     }
-    if (err == ESP_OK) {
-        err = uart_set_mode(config->uart_num, UART_MODE_UART);
-    }
 
     if (err != ESP_OK) {
         uart_driver_delete(config->uart_num);
@@ -100,7 +100,7 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
 
     ESP_LOGI(
         TAG,
-        "RS485 ready: UART%d TX=%d RX=%d baud=%d, immediate RX",
+        "RS485 ready: UART%d TX=%d RX=%d baud=%d, Waveshare echo configuration",
         (int)config->uart_num,
         config->tx_gpio,
         config->rx_gpio,
@@ -204,6 +204,8 @@ esp_err_t rs485_port_exchange(
     *response_len = 0U;
     uart_flush_input(s_uart_num);
 
+    ESP_LOG_BUFFER_HEXDUMP(TAG, request, request_len, ESP_LOG_INFO);
+
     const int written = uart_write_bytes(
         s_uart_num,
         (const char *)request,
@@ -215,55 +217,30 @@ esp_err_t rs485_port_exchange(
     }
 
     /*
-     * Płytka steruje kierunkiem RS485 sprzętowo z TXD. Nie czekamy na
-     * uart_wait_tx_done(), aby odbiornik UART był obsługiwany natychmiast,
-     * gdy moduł rozpocznie odpowiedź po ostatnim bicie zapytania.
+     * Dokładnie jak w działającym przykładzie Waveshare: sterownik UART ma
+     * włączony tylko bufor RX, bez kolejki zdarzeń, trybu RS485 i ręcznych
+     * progów FIFO. Odczyt jest jednym blokującym uart_read_bytes().
      */
-    size_t total = 0U;
-    const TickType_t start_tick = xTaskGetTickCount();
+    const int received = uart_read_bytes(
+        s_uart_num,
+        response,
+        response_capacity,
+        response_timeout
+    );
 
-    while (total < response_capacity) {
-        const TickType_t elapsed = xTaskGetTickCount() - start_tick;
-        if (elapsed >= response_timeout) {
-            break;
-        }
-
-        const TickType_t remaining = response_timeout - elapsed;
-        const TickType_t wait_ticks = total == 0U
-            ? (remaining < pdMS_TO_TICKS(RS485_FIRST_BYTE_SLICE_MS)
-                ? remaining
-                : pdMS_TO_TICKS(RS485_FIRST_BYTE_SLICE_MS))
-            : pdMS_TO_TICKS(RS485_INTERBYTE_TIMEOUT_MS);
-
-        const int received = uart_read_bytes(
-            s_uart_num,
-            response + total,
-            response_capacity - total,
-            wait_ticks
-        );
-
-        if (received > 0) {
-            total += (size_t)received;
-            continue;
-        }
-
-        if (total > 0U) {
-            break;
-        }
-    }
-
-    if (total == 0U) {
+    if (received <= 0) {
         result = ESP_ERR_TIMEOUT;
         goto finish;
     }
 
-    *response_len = total;
+    *response_len = (size_t)received;
     ESP_LOGI(
         TAG,
-        "UART%d received %u bytes",
+        "UART%d received %d bytes",
         (int)s_uart_num,
-        (unsigned int)total
+        received
     );
+    ESP_LOG_BUFFER_HEXDUMP(TAG, response, (size_t)received, ESP_LOG_INFO);
 
 finish:
     xSemaphoreGive(s_bus_mutex);
