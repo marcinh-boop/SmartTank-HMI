@@ -6,7 +6,7 @@
 
 #define RS485_DEFAULT_BAUD_RATE       9600
 #define RS485_DEFAULT_RX_BUFFER_SIZE  2048
-#define RS485_READ_SLICE_MS           20
+#define RS485_FIRST_BYTE_SLICE_MS     20
 #define RS485_INTERBYTE_TIMEOUT_MS    20
 #define RS485_CONFIG_TIMEOUT_MS       250
 
@@ -87,12 +87,6 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
     if (err == ESP_OK) {
         err = uart_set_mode(config->uart_num, UART_MODE_UART);
     }
-    if (err == ESP_OK) {
-        err = uart_set_rx_full_threshold(config->uart_num, 1);
-    }
-    if (err == ESP_OK) {
-        err = uart_set_rx_timeout(config->uart_num, 3);
-    }
 
     if (err != ESP_OK) {
         uart_driver_delete(config->uart_num);
@@ -106,7 +100,7 @@ esp_err_t rs485_port_init(const rs485_port_config_t *config)
 
     ESP_LOGI(
         TAG,
-        "RS485 ready: UART%d TX=%d RX=%d baud=%d, direct RX",
+        "RS485 ready: UART%d TX=%d RX=%d baud=%d, immediate RX",
         (int)config->uart_num,
         config->tx_gpio,
         config->rx_gpio,
@@ -208,7 +202,6 @@ esp_err_t rs485_port_exchange(
 
     esp_err_t result = ESP_OK;
     *response_len = 0U;
-
     uart_flush_input(s_uart_num);
 
     const int written = uart_write_bytes(
@@ -221,11 +214,11 @@ esp_err_t rs485_port_exchange(
         goto finish;
     }
 
-    result = uart_wait_tx_done(s_uart_num, response_timeout);
-    if (result != ESP_OK) {
-        goto finish;
-    }
-
+    /*
+     * Płytka steruje kierunkiem RS485 sprzętowo z TXD. Nie czekamy na
+     * uart_wait_tx_done(), aby odbiornik UART był obsługiwany natychmiast,
+     * gdy moduł rozpocznie odpowiedź po ostatnim bicie zapytania.
+     */
     size_t total = 0U;
     const TickType_t start_tick = xTaskGetTickCount();
 
@@ -237,9 +230,9 @@ esp_err_t rs485_port_exchange(
 
         const TickType_t remaining = response_timeout - elapsed;
         const TickType_t wait_ticks = total == 0U
-            ? (remaining < pdMS_TO_TICKS(RS485_READ_SLICE_MS)
+            ? (remaining < pdMS_TO_TICKS(RS485_FIRST_BYTE_SLICE_MS)
                 ? remaining
-                : pdMS_TO_TICKS(RS485_READ_SLICE_MS))
+                : pdMS_TO_TICKS(RS485_FIRST_BYTE_SLICE_MS))
             : pdMS_TO_TICKS(RS485_INTERBYTE_TIMEOUT_MS);
 
         const int received = uart_read_bytes(
