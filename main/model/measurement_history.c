@@ -18,6 +18,8 @@ static measurement_history_sample_t s_samples[MEASUREMENT_HISTORY_CAPACITY];
 static uint32_t s_count;
 static uint32_t s_next_index;
 static uint32_t s_revision;
+static uint32_t s_last_sample_uptime;
+static bool s_has_sample;
 
 static int clamp_percent(int value)
 {
@@ -65,30 +67,48 @@ esp_err_t measurement_history_init(void)
     s_count = 0;
     s_next_index = 0;
     s_revision = 1;
+    s_last_sample_uptime = 0;
+    s_has_sample = false;
     return ESP_OK;
 }
 
 void measurement_history_add(
     int tank_percent,
+    bool tank_valid,
     float well_water_column_m,
     float well_depth_m,
+    bool well_valid,
     uint32_t uptime_seconds)
 {
-    if (s_history_mutex == NULL || well_depth_m <= 0.0f) {
+    if (s_history_mutex == NULL) {
         return;
     }
 
-    const int well_percent =
-        (int)((well_water_column_m / well_depth_m) * 100.0f + 0.5f);
+    int well_percent = 0;
+    if (well_depth_m > 0.0f) {
+        well_percent = (int)((well_water_column_m / well_depth_m) * 100.0f + 0.5f);
+    } else {
+        well_valid = false;
+    }
 
     measurement_history_sample_t sample = {
         .uptime_seconds = uptime_seconds,
         .tank_percent = clamp_percent(tank_percent),
         .well_percent = clamp_percent(well_percent),
+        .tank_valid = tank_valid,
+        .well_valid = well_valid,
     };
     sample.timestamp_valid = capture_timestamp(&sample.epoch_seconds);
 
     if (xSemaphoreTake(s_history_mutex, portMAX_DELAY) != pdTRUE) {
+        return;
+    }
+
+    /* Serwis odpytuje modul co sekunde, lecz historia zapisuje punkt co 10 minut. */
+    if (s_has_sample &&
+        (uint32_t)(uptime_seconds - s_last_sample_uptime) <
+            MEASUREMENT_HISTORY_INTERVAL_SECONDS) {
+        xSemaphoreGive(s_history_mutex);
         return;
     }
 
@@ -99,6 +119,8 @@ void measurement_history_add(
         s_count++;
     }
 
+    s_last_sample_uptime = uptime_seconds;
+    s_has_sample = true;
     s_revision++;
     xSemaphoreGive(s_history_mutex);
 }

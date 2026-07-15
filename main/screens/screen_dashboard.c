@@ -42,6 +42,7 @@ static bottom_nav_t *s_nav = NULL;
 static lv_timer_t *s_refresh_timer = NULL;
 static uint32_t s_last_revision = 0;
 static uint32_t s_last_history_revision = 0;
+static measurement_history_snapshot_t s_history_snapshot;
 
 static tank_widget_t s_tank_widget;
 static well_widget_t s_well_widget;
@@ -395,7 +396,7 @@ static void update_history_chart(
     }
 
     if (history->count == 0U) {
-        lv_label_set_text(view->stats_label, "Brak probek");
+        lv_label_set_text(view->stats_label, "Brak danych - pierwsza probka za chwile");
         lv_label_set_text(view->sample_time_label, "OSTATNIA PROBKA: --");
         lv_chart_refresh(view->chart);
         return;
@@ -403,13 +404,22 @@ static void update_history_chart(
 
     int minimum = 101;
     int maximum = -1;
-    int sum = 0;
+    int first_value = 0;
+    int last_value = 0;
+    uint32_t valid_count = 0U;
     const uint32_t offset = MEASUREMENT_HISTORY_CAPACITY - history->count;
 
     for (uint32_t i = 0; i < history->count; i++) {
         const int value = tank_chart
             ? history->samples[i].tank_percent
             : history->samples[i].well_percent;
+        const bool valid = tank_chart
+            ? history->samples[i].tank_valid
+            : history->samples[i].well_valid;
+
+        if (!valid) {
+            continue;
+        }
 
         lv_chart_set_value_by_id(
             view->chart,
@@ -424,32 +434,44 @@ static void update_history_chart(
         if (value > maximum) {
             maximum = value;
         }
-        sum += value;
+        if (valid_count == 0U) {
+            first_value = value;
+        }
+        last_value = value;
+        valid_count++;
+    }
+
+    if (valid_count == 0U) {
+        lv_label_set_text(
+            view->title_label,
+            tank_chart ? "SZAMBO  BRAK CZUJNIKA" : "STUDNIA  BRAK CZUJNIKA"
+        );
+        lv_label_set_text(view->stats_label, "Brak poprawnych pomiarow");
+        lv_label_set_text(view->sample_time_label, "SPRAWDZ CZUJNIK I PRZEWODY");
+        lv_chart_refresh(view->chart);
+        return;
     }
 
     const measurement_history_sample_t *latest_sample =
         &history->samples[history->count - 1U];
-    const int latest = tank_chart
-        ? latest_sample->tank_percent
-        : latest_sample->well_percent;
-    const float average = (float)sum / (float)history->count;
+    const int change = last_value - first_value;
 
     char buffer[96];
     snprintf(
         buffer,
         sizeof(buffer),
         tank_chart ? "SZAMBO  %d%%" : "STUDNIA  %d%%",
-        latest
+        last_value
     );
     lv_label_set_text(view->title_label, buffer);
 
     snprintf(
         buffer,
         sizeof(buffer),
-        "MIN %d%%   AVG %.0f%%   MAX %d%%",
+        "MIN %d%%   MAX %d%%   ZMIANA %+d%%",
         minimum,
-        average,
-        maximum
+        maximum,
+        change
     );
     lv_label_set_text(view->stats_label, buffer);
 
@@ -460,22 +482,21 @@ static void update_history_chart(
 
 static void refresh_history_from_model(bool force)
 {
-    measurement_history_snapshot_t history;
-    measurement_history_get_snapshot(&history);
+    measurement_history_get_snapshot(&s_history_snapshot);
 
-    if (!force && history.revision == s_last_history_revision) {
+    if (!force && s_history_snapshot.revision == s_last_history_revision) {
         return;
     }
 
-    s_last_history_revision = history.revision;
+    s_last_history_revision = s_history_snapshot.revision;
 
     char range_text[64];
-    format_history_range(&history, range_text, sizeof(range_text));
+    format_history_range(&s_history_snapshot, range_text, sizeof(range_text));
     lv_label_set_text(s_tank_history.range_label, range_text);
     lv_label_set_text(s_well_history.range_label, range_text);
 
-    update_history_chart(&s_tank_history, &history, true);
-    update_history_chart(&s_well_history, &history, false);
+    update_history_chart(&s_tank_history, &s_history_snapshot, true);
+    update_history_chart(&s_well_history, &s_history_snapshot, false);
 }
 
 static void refresh_header_status(const smarttank_state_t *state)

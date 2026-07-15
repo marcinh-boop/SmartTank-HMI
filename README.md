@@ -1,120 +1,68 @@
 # SmartTank HMI
 
-Panel HMI do monitorowania poziomu szamba i studni, pogody oraz stanu instalacji pomiarowej. Projekt jest rozwijany dla płytki Waveshare ESP32-S3 Touch LCD 5" z ekranem 800×480.
+SmartTank HMI to panel do monitorowania poziomu szamba i studni oraz diagnostyki instalacji. Projekt działa na Waveshare ESP32-S3 Touch LCD 5 cali (800x480) i komunikuje się z modułem Waveshare Modbus RTU Analog Input 8CH.
 
-## Status projektu
+## Aktualny stan
 
-**Etap:** kandydat do wersji 1.0.0  
-**Stan interfejsu:** zamrożony do czasu uruchomienia rzeczywistego toru pomiarowego  
-**Aktualne źródło danych poziomu:** symulator  
-**Najbliższy etap:** Waveshare Modbus RTU Analog Input 8CH + czujniki 4–20 mA
+Wersja: **0.9.0-unstable**
 
-Historia zmian znajduje się w pliku [CHANGELOG.md](CHANGELOG.md).
+To wydanie rozwojowe przeznaczone do testów na docelowej instalacji. Rzeczywiste pomiary są pobierane z wejść analogowych; symulator jest wyłączony.
 
-## Główne funkcje
+- AI1: poziom szamba, czujnik 4-20 mA,
+- AI2: poziom studni, czujnik 4-20 mA,
+- AI3: planowany zbiornik deszczówki,
+- AI4: planowany pomiar wiatru,
+- AI5-AI8: wolne wejścia.
 
-- pulpit z kaflami: szambo, studnia i pogoda,
-- szczegóły oraz kalibracja szamba,
-- szczegóły oraz kalibracja studni,
-- zapis konfiguracji w NVS,
-- Wi-Fi z wyszukiwaniem sieci i zapisem hasła,
-- RTC PCF85063, NTP i czas lokalny,
-- pogoda Open-Meteo z wyborem miejscowości,
-- czterodniowa prognoza z ikonami,
-- centrum alarmów w formie tabeli zdarzeń,
-- historia pomiarów w czasie działania urządzenia,
-- diagnostyka RS485/Modbus i modułu analogowego,
-- przygotowane partycje `factory`, `ota_0`, `ota_1` i `otadata`.
+## Najważniejsze funkcje
 
-## Sprzęt
+- rzeczywisty odczyt AI1 i AI2 przez RS485/Modbus RTU,
+- osobna kalibracja szamba i studni zapisywana w NVS,
+- diagnostyka ośmiu portów analogowych,
+- wykrywanie odłączonego lub nieprawidłowego czujnika,
+- historia poziomu z próbką co 10 minut i zakresem do 24 godzin,
+- Wi-Fi, RTC, NTP, pogoda Open-Meteo i prognoza,
+- alarmy i dziennik zdarzeń,
+- aktualizacja firmware OTA przez przeglądarkę,
+- partycje `factory`, `ota_0` i `ota_1` z obsługą rollbacku.
 
-### Panel główny
+## Sprzęt i komunikacja
 
-- Waveshare ESP32-S3 Touch LCD 5",
-- rozdzielczość 800×480,
-- ESP32-S3,
-- dotyk po I2C,
-- RTC PCF85063,
-- RS485 przez pokładowy SP3485,
-- UART2: RX GPIO43, TX GPIO44.
-
-### Tor pomiarowy
-
-Planowany moduł:
-
+- Waveshare ESP32-S3 Touch LCD 5 cali,
 - Waveshare Modbus RTU Analog Input 8CH,
-- Modbus RTU 9600, 8N1,
-- domyślny adres slave: 1,
-- AI1: szambo, 4–20 mA,
-- AI2: studnia, 4–20 mA.
+- UART2: RX GPIO43, TX GPIO44,
+- Modbus RTU: 9600 bit/s, 8N1, adres urządzenia 1,
+- czujnik microsonic mic+130/IU/TC lub zgodny 4-20 mA,
+- ESP-IDF 5.5.2 i LVGL 8.4.
 
-Planowany czujnik:
+## Pierwsze wgranie przez USB
 
-- microsonic mic+130/IU/TC lub zgodny czujnik przemysłowy 4–20 mA.
-
-## Oprogramowanie
-
-- ESP-IDF 5.5.2,
-- LVGL 8.4,
-- FreeRTOS,
-- NVS,
-- ESP HTTP Client,
-- Modbus RTU,
-- Open-Meteo.
-
-## Kompilacja i wgrywanie
-
-W terminalu ESP-IDF PowerShell:
+W terminalu ESP-IDF 5.5.2 PowerShell:
 
 ```powershell
-git pull origin main
-
 idf.py build
-if ($LASTEXITCODE -ne 0) { throw "Kompilacja nieudana — nie flashuję" }
-
-idf.py flash monitor
+idf.py -p COM6 flash monitor
 ```
 
-`fullclean` nie jest potrzebny przy zwykłych zmianach kodu. Należy go używać wyłącznie po zmianach konfiguracji projektu, tablicy partycji lub `sdkconfig`.
+Numer portu COM należy dopasować do komputera. Pierwsze wgranie zapisuje bootloader, tablicę partycji i obraz fabryczny.
 
-## Stabilna konfiguracja wyświetlacza
+## Aktualizacja OTA
 
-Projekt korzysta z:
+1. Zbuduj firmware poleceniem `idf.py build`.
+2. Otwórz w przeglądarce `http://ADRES_IP_URZADZENIA:8080/update`.
+3. Wybierz plik `build/SmartTank.bin` i rozpocznij aktualizację.
+4. Nie odłączaj zasilania podczas przesyłania. Po poprawnym zapisie urządzenie uruchomi się ponownie.
 
-- bufora klatki panelu w PSRAM,
-- dwóch wewnętrznych buforów bounce RGB po 20 linii,
-- częściowego renderowania LVGL,
-- bufora LVGL o wysokości 40 linii w pamięci wewnętrznej,
-- PCLK 12 MHz,
-- DMA burst 64.
+OTA działa wyłącznie w sieci lokalnej i obecnie nie wymaga hasła. Nie należy wystawiać portu 8080 do Internetu.
 
-Nie należy zmieniać sterownika wyświetlacza bez wyraźnej potrzeby, ponieważ obecna konfiguracja została potwierdzona jako stabilna.
+## Znane ograniczenia
 
-## Zakres wersji 1.0.0
-
-Przed wydaniem 1.0.0 należy zakończyć:
-
-1. uruchomienie komunikacji z modułem Waveshare 8CH,
-2. konfigurację AI1 i AI2 w trybie 4–20 mA,
-3. podłączenie rzeczywistych czujników,
-4. kalibrację szamba i studni,
-5. zastąpienie symulatora prawdziwymi pomiarami,
-6. filtrowanie, histerezę i wykrywanie awarii przewodu,
-7. test zaniku zasilania, braku Wi-Fi i braku RS485,
-8. test pracy ciągłej przez minimum 24 godziny.
-
-## Po wersji 1.0.0
-
-Planowane rozszerzenia:
-
-- aktualizacja OTA przez Wi-Fi,
-- lokalny webserver,
-- MQTT,
-- Home Assistant,
-- zdalny dostęp,
-- trwała historia pomiarów i alarmów.
+- historia pomiarów jest przechowywana w RAM i zeruje się po restarcie,
+- AI3 i AI4 nie są jeszcze obsługiwane funkcjonalnie,
+- brak MQTT, Home Assistant i dostępu zdalnego,
+- jest to wydanie niestabilne, bez testu ciągłej pracy przez 24 godziny.
 
 ## Autor
 
 Marcin Hoinca  
-Kontakt: marcin.hoinca@gmail.com
+marcin.hoinca@gmail.com

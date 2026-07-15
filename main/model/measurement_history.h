@@ -10,7 +10,9 @@
 
 #include "esp_err.h"
 
-#define MEASUREMENT_HISTORY_CAPACITY 24U
+/* 144 probki co 10 minut daja pelna dobe historii. */
+#define MEASUREMENT_HISTORY_CAPACITY 144U
+#define MEASUREMENT_HISTORY_INTERVAL_SECONDS 600U
 
 typedef struct {
     uint32_t uptime_seconds;
@@ -18,6 +20,8 @@ typedef struct {
     bool timestamp_valid;
     int tank_percent;
     int well_percent;
+    bool tank_valid;
+    bool well_valid;
 } measurement_history_sample_t;
 
 typedef struct {
@@ -29,8 +33,10 @@ typedef struct {
 esp_err_t measurement_history_init(void);
 void measurement_history_add(
     int tank_percent,
+    bool tank_valid,
     float well_water_column_m,
     float well_depth_m,
+    bool well_valid,
     uint32_t uptime_seconds
 );
 void measurement_history_get_snapshot(measurement_history_snapshot_t *snapshot);

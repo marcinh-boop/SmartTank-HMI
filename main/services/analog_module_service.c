@@ -15,7 +15,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 #include "app_model.h"
+#include "measurement_history.h"
 #include "modbus_rtu_client.h"
 #include "rs485_port.h"
 #include "well_settings.h"
@@ -54,6 +56,33 @@ static bool s_well_filter_ready;
 static float s_well_filtered_distance_mm;
 static uint32_t s_well_sample_counter;
 static uint32_t s_well_invalid_samples;
+
+/* Publikuje rzeczywisty stan łączności i czas pracy zamiast danych symulatora. */
+static void publish_system_status(bool modbus_connected, bool module_connected)
+{
+    const system_status_t status = {
+        .simulation_active = false,
+        .modbus_connected = modbus_connected,
+        .analog_module_connected = module_connected,
+        .uptime_seconds = (uint32_t)(esp_timer_get_time() / 1000000LL),
+    };
+    app_model_update_system(&status);
+}
+
+/* Dopisuje do historii jedną parę rzeczywistych pomiarów AI1 i AI2. */
+static void publish_measurement_history(void)
+{
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    measurement_history_add(
+        state.tank.level_percent,
+        state.tank.valid,
+        state.well.water_column_m,
+        state.well.well_depth_m,
+        state.well.valid,
+        state.system.uptime_seconds
+    );
+}
 
 static bool state_lock(void)
 {
@@ -474,6 +503,8 @@ static void analog_module_task(void *argument)
             publish_success(&module, identity_updated, modes_updated);
             publish_tank_measurement(&module);
             publish_well_measurement(&module);
+            publish_system_status(true, true);
+            publish_measurement_history();
             ESP_LOGI(
                 TAG,
                 "8CH online: AI1=%u uA (%.3f mA), AI2=%u uA",
@@ -483,6 +514,7 @@ static void analog_module_task(void *argument)
             );
         } else {
             publish_failure(err);
+            publish_system_status(modbus_rtu_client_is_initialized(), false);
             ESP_LOGW(TAG, "8CH input poll failed: %s", esp_err_to_name(err));
         }
 

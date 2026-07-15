@@ -79,8 +79,8 @@ esp_err_t app_model_init(void)
     s_state.tank.volume_m3 = 7.20f;
     s_state.tank.distance_mm = 780.0f;
     s_state.tank.current_ma = 15.52f;
-    s_state.tank.valid = true;
-    s_state.tank.health = SENSOR_HEALTH_OK;
+    s_state.tank.valid = false;
+    s_state.tank.health = SENSOR_HEALTH_OFFLINE;
 
     strncpy(
         s_state.tank_config.sensor_model,
@@ -101,8 +101,8 @@ esp_err_t app_model_init(void)
 
     s_state.well.water_column_m = 2.81f;
     s_state.well.well_depth_m = 4.00f;
-    s_state.well.valid = true;
-    s_state.well.health = SENSOR_HEALTH_OK;
+    s_state.well.valid = false;
+    s_state.well.health = SENSOR_HEALTH_OFFLINE;
 
     strncpy(
         s_state.weather.description,
@@ -112,7 +112,7 @@ esp_err_t app_model_init(void)
     s_state.weather.valid = false;
     s_state.weather.stale = false;
 
-    s_state.system.simulation_active = true;
+    s_state.system.simulation_active = false;
     s_state.system.modbus_connected = false;
     s_state.system.analog_module_connected = false;
     s_state.revision = 1;

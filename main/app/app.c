@@ -14,8 +14,8 @@
 #include "app_model.h"
 #include "measurement_history.h"
 #include "clock_service.h"
-#include "data_simulator.h"
 #include "ntp_service.h"
+#include "ota_service.h"
 #include "settings_storage.h"
 #include "weather_geocoding.h"
 #include "weather_service.h"
@@ -94,6 +94,15 @@ void app_start(void)
         }
     }
 
+    const esp_err_t ota_confirm_result = ota_service_confirm_running_firmware();
+    if (ota_confirm_result != ESP_OK) {
+        ESP_LOGW(TAG, "Unable to confirm running firmware: %s", esp_err_to_name(ota_confirm_result));
+    }
+    const esp_err_t ota_result = ota_service_start();
+    if (ota_result != ESP_OK) {
+        ESP_LOGW(TAG, "OTA service unavailable: %s", esp_err_to_name(ota_result));
+    }
+
     const esp_err_t ntp_result = ntp_service_start();
     if (ntp_result != ESP_OK) {
         ESP_LOGW(
@@ -131,8 +140,6 @@ void app_start(void)
             esp_err_to_name(analog_result)
         );
     }
-
-    ESP_ERROR_CHECK(data_simulator_start());
 
     const esp_err_t alarm_result = alarm_service_start();
     if (alarm_result != ESP_OK) {

@@ -20,6 +20,7 @@ idf_component_register(
         "services/clock_service.c"
         "services/data_simulator.c"
         "services/ntp_service.c"
+        "services/ota_service.c"
         "services/settings_storage.c"
         "services/weather_geocoding.c"
         "services/weather_location_storage.c"
@@ -74,6 +75,7 @@ idf_component_register(
         esp_app_format
         esp_event
         esp_http_client
+        esp_http_server
         esp_netif
         esp_wifi
         json

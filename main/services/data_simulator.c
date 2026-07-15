@@ -97,8 +97,10 @@ static void publish_simulated_state(uint32_t tick)
 
     measurement_history_add(
         live_tank_source ? state.tank.level_percent : tank.level_percent,
+        live_tank_source ? state.tank.valid : tank.valid,
         live_well_source ? state.well.water_column_m : well.water_column_m,
         live_well_source ? state.well.well_depth_m : well.well_depth_m,
+        live_well_source ? state.well.valid : well.valid,
         tick
     );
 }
