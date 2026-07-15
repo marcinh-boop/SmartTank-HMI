@@ -1,3 +1,8 @@
+/*
+ * Widżet weather_widget.c: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "weather_widget.h"
 #include "widget_common.h"
 #include "theme.h"

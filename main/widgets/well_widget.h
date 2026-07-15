@@ -1,3 +1,8 @@
+/*
+ * Widżet well_widget.h: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Ten nagłówek określa publiczne typy i funkcje dostępne dla innych części programu.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #pragma once
 
 #include "lvgl.h"

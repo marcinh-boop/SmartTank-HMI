@@ -1,3 +1,8 @@
+/*
+ * Widżet top_status_bar.c: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "top_status_bar.h"
 
 #include <stdint.h>

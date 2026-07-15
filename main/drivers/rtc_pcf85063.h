@@ -1,3 +1,8 @@
+/*
+ * Sterownik sprzętowy rtc_pcf85063.h: izoluje rejestry, piny i operacje urządzenia od reszty aplikacji.
+ * Ten nagłówek określa publiczne typy i funkcje dostępne dla innych części programu.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #pragma once
 
 #include <stdbool.h>

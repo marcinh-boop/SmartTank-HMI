@@ -1,3 +1,8 @@
+/*
+ * Plik waveshare_rgb_lcd_port.h: część infrastruktury SmartTank łącząca sprzęt ESP32-S3 z aplikacją i interfejsem LVGL.
+ * Ten nagłówek określa publiczne typy i funkcje dostępne dla innych części programu.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #ifndef _RGB_LCD_H_
 #define _RGB_LCD_H_
 

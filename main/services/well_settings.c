@@ -1,3 +1,9 @@
+/*
+ * Obsługa konfiguracji studni zapisanej w pamięci NVS.
+ * Przy pierwszym uruchomieniu ładowane są bezpieczne wartości początkowe.
+ * Zapis jest walidowany, aby błędna geometria lub kolejność progów nie mogły
+ * spowodować dzielenia przez zero ani nieprawidłowej oceny alarmów.
+ */
 #include "well_settings.h"
 
 #include <string.h>

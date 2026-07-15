@@ -1,3 +1,8 @@
+/*
+ * Widżet bottom_nav.c: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "bottom_nav.h"
 
 #include "alarm_service.h"
@@ -8,6 +13,7 @@
 #include "screen_settings_weather.h"
 #include "screen_weather_location.h"
 #include "theme.h"
+#include "top_status_bar.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -324,6 +330,7 @@ static void nav_button_event_cb(lv_event_t *event)
         screen_service_hide();
         screen_settings_hide();
         screen_alarms_open(lv_scr_act());
+        top_status_bar_set_page_title("ALARMY");
         bottom_nav_set_active(nav, page);
         return;
     }
@@ -335,6 +342,7 @@ static void nav_button_event_cb(lv_event_t *event)
         screen_weather_location_hide();
         screen_settings_open(lv_scr_act());
         screen_settings_weather_attach(lv_scr_act());
+        top_status_bar_set_page_title("USTAWIENIA");
         bottom_nav_set_active(nav, page);
         return;
     }
@@ -345,6 +353,7 @@ static void nav_button_event_cb(lv_event_t *event)
         screen_weather_location_hide();
         screen_settings_hide();
         screen_service_open(lv_scr_act());
+        top_status_bar_set_page_title("SERWIS");
         bottom_nav_set_active(nav, page);
         return;
     }
@@ -355,6 +364,7 @@ static void nav_button_event_cb(lv_event_t *event)
         screen_service_hide();
         screen_settings_hide();
         screen_info_open(lv_scr_act());
+        top_status_bar_set_page_title("INFORMACJE");
         bottom_nav_set_active(nav, page);
         return;
     }
@@ -364,6 +374,7 @@ static void nav_button_event_cb(lv_event_t *event)
     }
 
     hide_overlay_screens();
+    top_status_bar_clear_page_override();
     bottom_nav_set_active(nav, page);
 }
 

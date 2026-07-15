@@ -1,3 +1,8 @@
+/*
+ * Moduł measurement_history.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "measurement_history.h"
 
 #include <string.h>

@@ -1,6 +1,12 @@
+/*
+ * Widżet tank_widget.h: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Ten nagłówek określa publiczne typy i funkcje dostępne dla innych części programu.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #pragma once
 
 #include "lvgl.h"
+#include "app_model.h"
 
 typedef struct {
     lv_obj_t *root;
@@ -23,5 +29,10 @@ void tank_widget_set_data(
     float volume_m3,
     float capacity_m3,
     int warning_percent,
-    int critical_percent
+    int critical_percent,
+    bool valid,
+    sensor_health_t health,
+    float distance_mm,
+    float distance_empty_mm,
+    float distance_full_mm
 );

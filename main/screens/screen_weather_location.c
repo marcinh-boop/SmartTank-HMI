@@ -1,3 +1,8 @@
+/*
+ * Moduł screen_weather_location.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "screen_weather_location.h"
 
 #include <stdint.h>

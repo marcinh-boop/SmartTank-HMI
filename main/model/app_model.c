@@ -1,3 +1,9 @@
+/*
+ * Implementacja współdzielonego modelu aplikacji.
+ * Mutex chroni dane przed jednoczesnym dostępem z zadań pomiarowych i LVGL.
+ * Każda zmiana zwiększa numer rewizji, dzięki czemu UI odświeża się tylko,
+ * gdy pojawiły się nowe dane. Konfiguracja szamba jest również zapisywana NVS.
+ */
 #include "app_model.h"
 
 #include <string.h>
@@ -69,8 +75,8 @@ esp_err_t app_model_init(void)
     memset(&s_state, 0, sizeof(s_state));
 
     s_state.tank.level_percent = 72;
-    s_state.tank.capacity_m3 = 10.50f;
-    s_state.tank.volume_m3 = 7.56f;
+    s_state.tank.capacity_m3 = 10.00f;
+    s_state.tank.volume_m3 = 7.20f;
     s_state.tank.distance_mm = 780.0f;
     s_state.tank.current_ma = 15.52f;
     s_state.tank.valid = true;
@@ -87,9 +93,9 @@ esp_err_t app_model_init(void)
         sizeof(s_state.tank_config.input_mode) - 1U
     );
     s_state.tank_config.analog_channel = 1U;
-    s_state.tank_config.distance_empty_mm = 1500.0f;
-    s_state.tank_config.distance_full_mm = 250.0f;
-    s_state.tank_config.capacity_m3 = 10.50f;
+    s_state.tank_config.distance_empty_mm = 2200.0f;
+    s_state.tank_config.distance_full_mm = 500.0f;
+    s_state.tank_config.capacity_m3 = 10.00f;
     s_state.tank_config.warning_percent = 80;
     s_state.tank_config.critical_percent = 90;
 

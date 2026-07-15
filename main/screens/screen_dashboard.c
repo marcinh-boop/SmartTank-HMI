@@ -1,3 +1,8 @@
+/*
+ * Element ekranu screen_dashboard.c: tworzy widok LVGL, obsługuje zdarzenia użytkownika i odświeża prezentowane dane.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "screen_dashboard.h"
 
 #include <stdint.h>
@@ -526,7 +531,12 @@ static void refresh_dashboard_from_model(bool force)
             state.tank.volume_m3,
             state.tank.capacity_m3,
             state.tank_config.warning_percent,
-            state.tank_config.critical_percent
+            state.tank_config.critical_percent,
+            state.tank.valid,
+            state.tank.health,
+            state.tank.distance_mm,
+            state.tank_config.distance_empty_mm,
+            state.tank_config.distance_full_mm
         );
 
         well_widget_set_data(

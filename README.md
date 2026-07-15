@@ -54,7 +54,7 @@ Planowany czujnik:
 
 ## Oprogramowanie
 
-- ESP-IDF 5.5.1,
+- ESP-IDF 5.5.2,
 - LVGL 8.4,
 - FreeRTOS,
 - NVS,

@@ -1,3 +1,8 @@
+/*
+ * Sterownik sprzętowy rs485_port.c: izoluje rejestry, piny i operacje urządzenia od reszty aplikacji.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "rs485_port.h"
 
 #include "esp_log.h"

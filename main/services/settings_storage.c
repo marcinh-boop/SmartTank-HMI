@@ -1,3 +1,8 @@
+/*
+ * Zapis i odczyt ustawień szamba w NVS.
+ * Przechowuje kanał analogowy, kalibrację PUSTE/PEŁNE, pojemność oraz progi.
+ * Numer wersji formatu pozwala bezpiecznie odrzucić niezgodne stare dane.
+ */
 #include "settings_storage.h"
 
 #include <stddef.h>

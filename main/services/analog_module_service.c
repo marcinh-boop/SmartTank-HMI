@@ -1,3 +1,12 @@
+/*
+ * Serwis sprzętowego modułu Waveshare Analog Input 8CH.
+ * Cyklicznie odczytuje osiem kanałów przez Modbus RTU, rozpoznaje obecność
+ * czujników 4-20 mA i publikuje pomiary AI1 (szambo) oraz AI2 (studnia) do
+ * wspólnego modelu aplikacji. Kalibracja zbiorników pochodzi z ustawień,
+ * natomiast charakterystyka 4-20 mA czujnika mic+130 jest wspólna dla kanałów.
+ * Filtr EMA ogranicza skoki wskazań, a trzy błędne próbki ustawiają OFFLINE
+ * bez kasowania ostatniej poprawnej wartości liczbowej.
+ */
 #include "analog_module_service.h"
 
 #include <string.h>
@@ -6,8 +15,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "app_model.h"
 #include "modbus_rtu_client.h"
 #include "rs485_port.h"
+#include "well_settings.h"
 
 #define ANALOG_MODULE_DEFAULT_SLAVE_ADDRESS 1U
 #define ANALOG_MODULE_DEFAULT_BAUD_RATE     9600U
@@ -19,11 +30,30 @@
 #define ANALOG_MODULE_OFFLINE_POLL_MS       3000U
 #define ANALOG_MODULE_OFFLINE_THRESHOLD     3U
 
+#define TANK_SENSOR_CHANNEL_INDEX           0U
+#define TANK_SENSOR_MIN_CURRENT_MA           3.5F
+#define TANK_SENSOR_MAX_CURRENT_MA           22.0F
+#define TANK_SENSOR_ZERO_CURRENT_MA          4.0F
+#define TANK_SENSOR_CURRENT_SPAN_MA          16.0F
+#define TANK_SENSOR_MIN_DISTANCE_MM          200.0F
+#define TANK_SENSOR_MAX_DISTANCE_MM          2000.0F
+#define TANK_FILTER_ALPHA                    0.20F
+#define TANK_INVALID_SAMPLE_THRESHOLD        3U
+#define WELL_SENSOR_CHANNEL_INDEX            1U
+
 static const char *TAG = "analog_module";
 
 static SemaphoreHandle_t s_mutex;
 static TaskHandle_t s_task;
 static analog_module_service_snapshot_t s_snapshot;
+static bool s_tank_filter_ready;
+static float s_tank_filtered_distance_mm;
+static uint32_t s_tank_sample_counter;
+static uint32_t s_tank_invalid_samples;
+static bool s_well_filter_ready;
+static float s_well_filtered_distance_mm;
+static uint32_t s_well_sample_counter;
+static uint32_t s_well_invalid_samples;
 
 static bool state_lock(void)
 {
@@ -34,6 +64,176 @@ static bool state_lock(void)
 static void state_unlock(void)
 {
     xSemaphoreGive(s_mutex);
+}
+
+static float clamp_float(float value, float minimum, float maximum)
+{
+    if (value < minimum) {
+        return minimum;
+    }
+    if (value > maximum) {
+        return maximum;
+    }
+    return value;
+}
+
+static void publish_tank_measurement(
+    const waveshare_analog_8ch_snapshot_t *module)
+{
+    if (module == NULL || !module->inputs_valid) {
+        return;
+    }
+
+    const float current_ma = module->input_ma[TANK_SENSOR_CHANNEL_INDEX];
+    const bool sensor_present = current_ma >= TANK_SENSOR_MIN_CURRENT_MA &&
+        current_ma <= TANK_SENSOR_MAX_CURRENT_MA;
+
+    if (!sensor_present) {
+        s_tank_invalid_samples++;
+        if (s_tank_invalid_samples < TANK_INVALID_SAMPLE_THRESHOLD) {
+            return;
+        }
+
+        smarttank_state_t state;
+        app_model_get_snapshot(&state);
+        tank_measurement_t offline = state.tank;
+        offline.valid = false;
+        offline.health = SENSOR_HEALTH_OFFLINE;
+        offline.current_ma = current_ma;
+        offline.sample_counter = ++s_tank_sample_counter;
+        app_model_update_tank(&offline);
+        return;
+    }
+
+    s_tank_invalid_samples = 0U;
+
+    float distance_mm = TANK_SENSOR_MIN_DISTANCE_MM +
+        ((current_ma - TANK_SENSOR_ZERO_CURRENT_MA) /
+         TANK_SENSOR_CURRENT_SPAN_MA) *
+        (TANK_SENSOR_MAX_DISTANCE_MM - TANK_SENSOR_MIN_DISTANCE_MM);
+    distance_mm = clamp_float(
+        distance_mm,
+        TANK_SENSOR_MIN_DISTANCE_MM,
+        TANK_SENSOR_MAX_DISTANCE_MM
+    );
+
+    if (!s_tank_filter_ready) {
+        s_tank_filtered_distance_mm = distance_mm;
+        s_tank_filter_ready = true;
+    } else {
+        s_tank_filtered_distance_mm += TANK_FILTER_ALPHA *
+            (distance_mm - s_tank_filtered_distance_mm);
+    }
+
+    smarttank_state_t state;
+    app_model_get_snapshot(&state);
+    const float measurement_span_mm =
+        state.tank_config.distance_empty_mm - state.tank_config.distance_full_mm;
+    const float level_percent_float = measurement_span_mm > 0.0F
+        ? clamp_float(
+            100.0F *
+                (state.tank_config.distance_empty_mm - s_tank_filtered_distance_mm) /
+                measurement_span_mm,
+            0.0F,
+            100.0F
+        )
+        : 0.0F;
+    const int level_percent = (int)(level_percent_float + 0.5F);
+
+    tank_measurement_t tank = {
+        .level_percent = level_percent,
+        .volume_m3 = state.tank_config.capacity_m3 * level_percent_float / 100.0F,
+        .capacity_m3 = state.tank_config.capacity_m3,
+        .distance_mm = s_tank_filtered_distance_mm,
+        .current_ma = current_ma,
+        .valid = true,
+        .health = SENSOR_HEALTH_OK,
+        .sample_counter = ++s_tank_sample_counter,
+    };
+
+    if (level_percent >= state.tank_config.critical_percent) {
+        tank.health = SENSOR_HEALTH_CRITICAL;
+    } else if (level_percent >= state.tank_config.warning_percent) {
+        tank.health = SENSOR_HEALTH_WARNING;
+    }
+
+    app_model_update_tank(&tank);
+}
+
+static void publish_well_measurement(
+    const waveshare_analog_8ch_snapshot_t *module)
+{
+    if (module == NULL || !module->inputs_valid) {
+        return;
+    }
+
+    const float current_ma = module->input_ma[WELL_SENSOR_CHANNEL_INDEX];
+    const bool sensor_present = current_ma >= TANK_SENSOR_MIN_CURRENT_MA &&
+        current_ma <= TANK_SENSOR_MAX_CURRENT_MA;
+
+    if (!sensor_present) {
+        s_well_invalid_samples++;
+        if (s_well_invalid_samples < TANK_INVALID_SAMPLE_THRESHOLD) {
+            return;
+        }
+
+        smarttank_state_t state;
+        app_model_get_snapshot(&state);
+        well_measurement_t offline = state.well;
+        offline.valid = false;
+        offline.health = SENSOR_HEALTH_OFFLINE;
+        offline.current_ma = current_ma;
+        offline.sample_counter = ++s_well_sample_counter;
+        app_model_update_well(&offline);
+        return;
+    }
+
+    s_well_invalid_samples = 0U;
+    float distance_mm = TANK_SENSOR_MIN_DISTANCE_MM +
+        ((current_ma - TANK_SENSOR_ZERO_CURRENT_MA) /
+         TANK_SENSOR_CURRENT_SPAN_MA) *
+        (TANK_SENSOR_MAX_DISTANCE_MM - TANK_SENSOR_MIN_DISTANCE_MM);
+    distance_mm = clamp_float(
+        distance_mm,
+        TANK_SENSOR_MIN_DISTANCE_MM,
+        TANK_SENSOR_MAX_DISTANCE_MM
+    );
+
+    if (!s_well_filter_ready) {
+        s_well_filtered_distance_mm = distance_mm;
+        s_well_filter_ready = true;
+    } else {
+        s_well_filtered_distance_mm += TANK_FILTER_ALPHA *
+            (distance_mm - s_well_filtered_distance_mm);
+    }
+
+    well_settings_t settings;
+    well_settings_get(&settings);
+    const float span_mm = settings.distance_empty_mm - settings.distance_full_mm;
+    const float percent_float = span_mm > 0.0F
+        ? clamp_float(
+            100.0F * (settings.distance_empty_mm - s_well_filtered_distance_mm) / span_mm,
+            0.0F,
+            100.0F
+        )
+        : 0.0F;
+    const int percent = (int)(percent_float + 0.5F);
+
+    well_measurement_t well = {
+        .water_column_m = settings.well_depth_m * percent_float / 100.0F,
+        .well_depth_m = settings.well_depth_m,
+        .distance_mm = s_well_filtered_distance_mm,
+        .current_ma = current_ma,
+        .valid = true,
+        .health = SENSOR_HEALTH_OK,
+        .sample_counter = ++s_well_sample_counter,
+    };
+    if (percent <= settings.critical_percent) {
+        well.health = SENSOR_HEALTH_CRITICAL;
+    } else if (percent <= settings.warning_percent) {
+        well.health = SENSOR_HEALTH_WARNING;
+    }
+    app_model_update_well(&well);
 }
 
 const char *analog_module_service_state_name(analog_module_state_t state)
@@ -272,6 +472,8 @@ static void analog_module_task(void *argument)
             }
 
             publish_success(&module, identity_updated, modes_updated);
+            publish_tank_measurement(&module);
+            publish_well_measurement(&module);
             ESP_LOGI(
                 TAG,
                 "8CH online: AI1=%u uA (%.3f mA), AI2=%u uA",

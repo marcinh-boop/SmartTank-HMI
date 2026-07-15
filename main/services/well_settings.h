@@ -1,3 +1,8 @@
+/*
+ * Struktura i API trwałych ustawień studni.
+ * Ustawienia są uniwersalne: użytkownik wybiera kanał, model wejścia,
+ * odległość dla poziomu pustego i pełnego, głębokość oraz progi alarmowe.
+ */
 #pragma once
 
 #include <stdbool.h>

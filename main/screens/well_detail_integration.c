@@ -1,3 +1,8 @@
+/*
+ * Moduł well_detail_integration.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "well_detail_integration.h"
 
 #include <stdint.h>

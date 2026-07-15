@@ -1,3 +1,7 @@
+/*
+ * Publiczne API pamięci trwałej konfiguracji szamba.
+ * Oddziela model aplikacji od szczegółów kluczy i przestrzeni nazw NVS.
+ */
 #pragma once
 
 #include "app_model.h"

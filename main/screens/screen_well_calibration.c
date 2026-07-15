@@ -1,3 +1,9 @@
+/*
+ * Ekran uniwersalnej kalibracji studni.
+ * Użytkownik określa punkty PUSTA/PEŁNA, głębokość, kanał analogowy i progi
+ * niskiego poziomu. Bieżący odczyt pomaga wyznaczyć punkty bez wpisywania
+ * wartości na podstawie założeń dotyczących konkretnej studni.
+ */
 #include "screen_well_calibration.h"
 
 #include <stdint.h>

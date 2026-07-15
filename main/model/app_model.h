@@ -1,3 +1,9 @@
+/*
+ * Definicje centralnego modelu danych SmartTank.
+ * Struktury opisują bieżące pomiary, konfigurację szamba, studnię, pogodę
+ * oraz stan systemu. Ekrany pobierają spójną migawkę, a serwisy pomiarowe
+ * aktualizują wyłącznie należące do nich fragmenty modelu.
+ */
 #pragma once
 
 #include <stdbool.h>
@@ -40,6 +46,8 @@ typedef struct {
 typedef struct {
     float water_column_m;
     float well_depth_m;
+    float distance_mm;
+    float current_ma;
     bool valid;
     sensor_health_t health;
     uint32_t sample_counter;

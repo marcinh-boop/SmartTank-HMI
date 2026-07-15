@@ -1,3 +1,10 @@
+/*
+ * Szczegółowy ekran szamba.
+ * Prezentuje procent, objętość, wysokość cieczy, odległość i prąd 4-20 mA.
+ * Kolory wynikają ze stanu czujnika i progów użytkownika. Jeśli dno leży poza
+ * zakresem czujnika, ekran pokazuje wartość graniczną ze znakiem „mniej niż”.
+ * Przycisk kalibracji prowadzi do uniwersalnych ustawień konkretnej instalacji.
+ */
 #include "screen_tank_detail.h"
 
 #include <stdio.h>
@@ -18,6 +25,7 @@ static lv_obj_t *s_percent_label;
 static lv_obj_t *s_volume_label;
 static lv_obj_t *s_status_label;
 static lv_obj_t *s_distance_value;
+static lv_obj_t *s_level_value;
 static lv_obj_t *s_current_value;
 static lv_obj_t *s_sample_value;
 static lv_obj_t *s_source_value;
@@ -246,18 +254,11 @@ lv_obj_t *screen_tank_detail_create(
 
     lv_obj_t *measurement_panel = create_panel(s_root, 278, 245);
     create_label(measurement_panel, "POMIAR", DETAIL_BLUE, LV_ALIGN_TOP_LEFT, 0, 0);
-    s_distance_value = create_value_row(measurement_panel, "Odleglosc", "-- mm", 38);
-    s_current_value = create_value_row(measurement_panel, "Prad petli", "-- mA", 83);
-    s_sample_value = create_value_row(measurement_panel, "Probka", "--", 128);
-    s_source_value = create_value_row(measurement_panel, "Zrodlo", "--", 173);
-    create_label(
-        measurement_panel,
-        "Surowe dane beda odczytywane z Modbus RTU.",
-        ST_COLOR_TEXT_DIM,
-        LV_ALIGN_BOTTOM_LEFT,
-        0,
-        -4
-    );
+    s_distance_value = create_value_row(measurement_panel, "Czujnik - lustro", "-- cm", 34);
+    s_level_value = create_value_row(measurement_panel, "Wysokosc cieczy", "-- cm", 70);
+    s_current_value = create_value_row(measurement_panel, "Prad petli", "-- mA", 106);
+    s_sample_value = create_value_row(measurement_panel, "Probka", "--", 142);
+    s_source_value = create_value_row(measurement_panel, "Zrodlo", "--", 178);
 
     lv_obj_t *config_panel = create_panel(s_root, 536, 244);
     create_label(config_panel, "CZUJNIK I KALIBRACJA", DETAIL_YELLOW, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -294,17 +295,50 @@ void screen_tank_detail_update(const smarttank_state_t *state)
     lv_arc_set_value(s_arc, percent);
     lv_obj_set_style_arc_color(s_arc, status_color, LV_PART_INDICATOR);
 
-    snprintf(buffer, sizeof(buffer), "%d%%", percent);
+    const float minimum_measurable_percent =
+        100.0f * (state->tank_config.distance_empty_mm - 2000.0f) /
+        (state->tank_config.distance_empty_mm - state->tank_config.distance_full_mm);
+    const bool below_sensor_range = state->tank.valid &&
+        state->tank_config.distance_empty_mm > 2000.0f &&
+        state->tank.distance_mm >= 1995.0f;
+
+    if (below_sensor_range) {
+        snprintf(buffer, sizeof(buffer), "<%.0f%%", minimum_measurable_percent);
+    } else {
+        snprintf(buffer, sizeof(buffer), "%d%%", percent);
+    }
     lv_label_set_text(s_percent_label, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.2f / %.2f m3", state->tank.volume_m3, state->tank.capacity_m3);
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        below_sensor_range ? "<%.2f / %.2f m3" : "%.2f / %.2f m3",
+        below_sensor_range
+            ? state->tank.capacity_m3 * minimum_measurable_percent / 100.0f
+            : state->tank.volume_m3,
+        state->tank.capacity_m3
+    );
     lv_label_set_text(s_volume_label, buffer);
 
     lv_label_set_text(s_status_label, health_text(state->tank.health, state->tank.valid));
     lv_obj_set_style_text_color(s_status_label, status_color, LV_PART_MAIN);
 
-    snprintf(buffer, sizeof(buffer), "%.0f mm", state->tank.distance_mm);
+    snprintf(buffer, sizeof(buffer), "%.1f cm", state->tank.distance_mm / 10.0f);
     lv_label_set_text(s_distance_value, buffer);
+
+    const float level_cm =
+        (state->tank_config.distance_empty_mm - state->tank.distance_mm) / 10.0f;
+    if (below_sensor_range) {
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "<%.0f cm (zakres)",
+            (state->tank_config.distance_empty_mm - 2000.0f) / 10.0f
+        );
+    } else {
+        snprintf(buffer, sizeof(buffer), "%.1f cm", level_cm > 0.0f ? level_cm : 0.0f);
+    }
+    lv_label_set_text(s_level_value, buffer);
 
     snprintf(buffer, sizeof(buffer), "%.2f mA", state->tank.current_ma);
     lv_label_set_text(s_current_value, buffer);
@@ -332,7 +366,7 @@ void screen_tank_detail_update(const smarttank_state_t *state)
     snprintf(buffer, sizeof(buffer), "%.0f mm", state->tank_config.distance_full_mm);
     lv_label_set_text(s_full_value, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.2f m3", state->tank_config.capacity_m3);
+    snprintf(buffer, sizeof(buffer), "%.2f m3", state->tank.capacity_m3);
     lv_label_set_text(s_capacity_value, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d%%", state->tank_config.warning_percent);

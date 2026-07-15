@@ -1,3 +1,8 @@
+/*
+ * Moduł theme.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "theme.h"
 
 void theme_init(void)

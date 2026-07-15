@@ -1,3 +1,8 @@
+/*
+ * Element ekranu screen_settings.c: tworzy widok LVGL, obsługuje zdarzenia użytkownika i odświeża prezentowane dane.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "screen_settings.h"
 
 #include <stdint.h>

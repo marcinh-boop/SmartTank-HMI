@@ -1,3 +1,8 @@
+/*
+ * Moduł weather_service.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "weather_service.h"
 
 #include <stdio.h>

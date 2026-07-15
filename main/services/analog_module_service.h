@@ -1,3 +1,8 @@
+/*
+ * Publiczny interfejs serwisu wejść analogowych.
+ * Udostępnia migawkę stanu modułu 8CH dla ekranów diagnostycznych, alarmów
+ * i symulatora oraz funkcję startującą zadanie okresowego odczytu Modbus.
+ */
 #pragma once
 
 #include <stdbool.h>

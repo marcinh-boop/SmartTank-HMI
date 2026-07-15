@@ -1,3 +1,9 @@
+/*
+ * Szczegółowy ekran studni.
+ * Pokazuje słup wody, głębokość, procent napełnienia, odległość od lustra,
+ * prąd AI2 i diagnostykę źródła. Interpretacja wyniku korzysta wyłącznie
+ * z ustawień studni, dzięki czemu ekran nie jest związany z jedną instalacją.
+ */
 #include "screen_well_detail.h"
 
 #include <stdio.h>
@@ -299,9 +305,7 @@ void screen_well_detail_update(const smarttank_state_t *state)
         percent,
         &settings
     );
-    const float free_space_m = state->well.well_depth_m > state->well.water_column_m
-        ? state->well.well_depth_m - state->well.water_column_m
-        : 0.0f;
+    const float free_space_m = state->well.distance_mm / 1000.0f;
 
     char buffer[64];
 
@@ -332,7 +336,7 @@ void screen_well_detail_update(const smarttank_state_t *state)
     snprintf(buffer, sizeof(buffer), "%.2f m", state->well.well_depth_m);
     lv_label_set_text(s_depth_value, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.2f m", free_space_m);
+    snprintf(buffer, sizeof(buffer), "%.2f m / %.2f mA", free_space_m, state->well.current_ma);
     lv_label_set_text(s_free_space_value, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d%%", percent);
@@ -341,10 +345,10 @@ void screen_well_detail_update(const smarttank_state_t *state)
     snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)state->well.sample_counter);
     lv_label_set_text(s_sample_value, buffer);
 
-    if (state->system.simulation_active) {
-        lv_label_set_text(s_source_value, "Symulacja");
-    } else if (state->system.modbus_connected) {
+    if (state->system.modbus_connected) {
         lv_label_set_text(s_source_value, "Modbus RTU");
+    } else if (state->system.simulation_active) {
+        lv_label_set_text(s_source_value, "Symulacja");
     } else {
         lv_label_set_text(s_source_value, "Offline");
     }

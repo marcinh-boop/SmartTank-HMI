@@ -1,3 +1,9 @@
+/*
+ * Ekran konfiguracji i kalibracji szamba.
+ * Pozwala ustawić odległość PUSTE/PEŁNE, pojemność, kanał i progi alarmowe,
+ * a także wykorzystać aktualny pomiar jako punkt kalibracyjny. Zmiany są
+ * edytowane w kopii roboczej i trafiają do modelu/NVS dopiero po zapisaniu.
+ */
 #include "screen_tank_calibration.h"
 
 #include <stdint.h>

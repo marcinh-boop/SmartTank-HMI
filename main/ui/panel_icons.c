@@ -1,3 +1,8 @@
+/*
+ * Moduł panel_icons.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "panel_icons.h"
 
 #include "theme.h"

@@ -1,3 +1,8 @@
+/*
+ * Moduł weather_geocoding.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "weather_geocoding.h"
 
 #include <ctype.h>

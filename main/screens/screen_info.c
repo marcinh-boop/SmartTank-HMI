@@ -1,3 +1,8 @@
+/*
+ * Moduł screen_info.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "screen_info.h"
 
 #include <stdio.h>

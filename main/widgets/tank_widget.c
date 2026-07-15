@@ -1,3 +1,8 @@
+/*
+ * Widżet tank_widget.c: wielokrotny komponent LVGL używany przez ekrany do spójnej prezentacji danych.
+ * Implementacja ukrywa szczegóły działania; inne moduły powinny korzystać z odpowiadającego jej API.
+ * Oddzielenie odpowiedzialności ułatwia testowanie, diagnostykę i późniejszą rozbudowę urządzenia.
+ */
 #include "tank_widget.h"
 #include "widget_common.h"
 #include "theme.h"
@@ -184,7 +189,12 @@ void tank_widget_set_data(
     float volume_m3,
     float capacity_m3,
     int warning_percent,
-    int critical_percent)
+    int critical_percent,
+    bool valid,
+    sensor_health_t health,
+    float distance_mm,
+    float distance_empty_mm,
+    float distance_full_mm)
 {
     if (widget == NULL) {
         return;
@@ -198,10 +208,19 @@ void tank_widget_set_data(
         percent = 100;
     }
 
+    const float span_mm = distance_empty_mm - distance_full_mm;
+    const float minimum_measurable_percent = span_mm > 0.0f
+        ? 100.0f * (distance_empty_mm - 2000.0f) / span_mm
+        : 0.0f;
+    const bool below_sensor_range = valid && distance_empty_mm > 2000.0f &&
+        distance_mm >= 1995.0f;
     lv_color_t status_color = TANK_GREEN;
     const char *status_text = "Poziom OK";
 
-    if (percent >= critical_percent) {
+    if (!valid || health == SENSOR_HEALTH_OFFLINE || health == SENSOR_HEALTH_FAULT) {
+        status_color = TANK_RED;
+        status_text = "CZUJNIK OFFLINE";
+    } else if (percent >= critical_percent) {
         status_color = TANK_RED;
         status_text = "ALARM";
     } else if (percent >= warning_percent) {
@@ -214,10 +233,23 @@ void tank_widget_set_data(
     snprintf(buffer, sizeof(buffer), "Pojemnosc: %.2f m3", capacity_m3);
     lv_label_set_text(widget->capacity_label, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%d%%", percent);
+    if (below_sensor_range) {
+        snprintf(buffer, sizeof(buffer), "<%.0f%%", minimum_measurable_percent);
+    } else {
+        snprintf(buffer, sizeof(buffer), "%d%%", percent);
+    }
     lv_label_set_text(widget->percent_label, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.2f m3", volume_m3);
+    if (below_sensor_range) {
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "<%.2f m3",
+            capacity_m3 * minimum_measurable_percent / 100.0f
+        );
+    } else {
+        snprintf(buffer, sizeof(buffer), "%.2f m3", volume_m3);
+    }
     lv_label_set_text(widget->volume_label, buffer);
 
     float reserve_m3 = capacity_m3 - volume_m3;

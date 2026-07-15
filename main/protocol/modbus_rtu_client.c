@@ -1,3 +1,8 @@
+/*
+ * Moduł modbus_rtu_client.c należy do warstwy głównej programu SmartTank.
+ * Realizuje logikę modułu i ukrywa jej szczegóły za publicznym interfejsem.
+ * Oddzielenie tej odpowiedzialności ułatwia diagnostykę, testy i dalszą rozbudowę.
+ */
 #include "modbus_rtu_client.h"
 
 #include <stdbool.h>
